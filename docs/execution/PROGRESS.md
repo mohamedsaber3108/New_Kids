@@ -24,13 +24,23 @@ after every meaningful change so work can resume without repeating discovery.
 - `tools/site-reconstruction/` is a vendored DEV-ONLY toolkit (own package.json);
   NOT shipped to users. Preserved, out of product scope.
 
+## Project identity (RESOLVED by correction directive)
+- USAM_New (= "KidsNew") = THIS project `M:\Kids _New\app`. Its frontend is the source of truth.
+- USAM Learning World (`USAM-Learning-Worlds` repo) = REFERENCE ONLY, later phase. Untouched.
+- USAM Kids / USAM / USAM Main = EXCLUDED. Not inspected, not used.
+
 ## Phase status
-- [x] Phase 1 — Discovery & baseline (git init, verified build/test/API, docs started)
-- [~] Phase 2 — Core foundation IN PROGRESS:
-      - [x] Versioned SQLite migration framework (server/migrate.mjs) + tests (37/37 pass)
+- [x] Phase 0 — Discovery & baseline (git init, verified build/test/API; identity resolved)
+- [x] Phase 1 — USAM_New frontend audit + feature→backend matrix
+      - [x] FRONTEND_INVENTORY.md: all routes, roles, contract notes (full source audit)
+      - [x] FEATURE_BACKEND_MATRIX.md: every api() call mapped; ZERO missing endpoints
+      - [x] Verified e2e journey (tests/journey.e2e.mjs) 18/18 steps incl. 2 authz guards
+- [~] Phase 2 — Core foundation / hardening IN PROGRESS:
+      - [x] Versioned SQLite migration framework (server/migrate.mjs) + tests (suite 37/37)
       - [ ] Uniform input validation layer
       - [ ] Structured JSON logging + request tracing polish
       - [ ] Config/secrets module with startup validation + .env.example
+      - [ ] Expand negative-authorization test coverage
 - [ ] Phase 3 — Core foundation (auth/permissions hardening, API contracts, observability)
 - [ ] Phase 4 — Learning engines completion
 - [ ] Phase 5 — Product experiences (learner/guardian/moderator/admin/public)
@@ -45,6 +55,8 @@ after every meaningful change so work can resume without repeating discovery.
 |---|---|---|
 | 2026-11-03 | 5430d8b | Baseline checkpoint committed; .gitignore hardened (data/, *.db, .env). |
 | 2026-11-03 | 3632a3e | Versioned migration framework + tests; execution docs. Full suite 37/37. |
+| 2026-11-03 | 7f807e9 | Repo discovery: found USAM-Learning-Worlds + related repos. |
+| 2026-11-03 | 894a235 | USAM_New frontend audit + API matrix + e2e journey (18/18); suite 37/37. |
 
 ## Testing notes / gotchas
 - Run tests with a CLEAN environment. Do NOT export PUBLIC_ORIGIN / ADMIN_EMAIL /
