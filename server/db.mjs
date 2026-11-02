@@ -1,6 +1,7 @@
 import {DatabaseSync} from 'node:sqlite';
 import {mkdirSync} from 'node:fs';
 import {dirname} from 'node:path';
+import {runMigrations} from './migrate.mjs';
 
 export function openDatabase(filename){
   if(filename!==':memory:')mkdirSync(dirname(filename),{recursive:true,mode:0o700});
@@ -163,5 +164,8 @@ export function openDatabase(filename){
   `);
   if(!db.prepare('PRAGMA table_info(users)').all().some(column=>column.name==='email_verified_at'))db.exec('ALTER TABLE users ADD COLUMN email_verified_at TEXT');
   if(!db.prepare('PRAGMA table_info(learners)').all().some(column=>column.name==='age_year'))db.exec('ALTER TABLE learners ADD COLUMN age_year INTEGER CHECK(age_year BETWEEN 7 AND 15)');
+  // Apply versioned migrations on top of the baseline schema. Safe and idempotent:
+  // already-applied migrations are skipped and the baseline marker performs no change.
+  runMigrations(db);
   return db;
 }
