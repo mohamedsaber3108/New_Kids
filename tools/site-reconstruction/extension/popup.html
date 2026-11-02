@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Site Reconstruction Toolkit v3.3.1</title>
+<style>
+:root{color-scheme:light}*{box-sizing:border-box}body{font:13px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;width:370px;padding:16px;margin:0;background:#f7f9f8;color:#122b27}h1{font-size:18px;margin:0 0 5px}p{margin:4px 0 13px;color:#435b54}.subtitle{font-size:12px}label{display:block;margin:11px 0 4px;font-weight:650}.check{display:flex;align-items:flex-start;gap:8px;font-weight:450;line-height:1.4}.check input{width:auto;flex:none;margin-top:2px}input{width:100%;padding:9px;border:1px solid #aabdb5;border-radius:6px;background:#fff;font:inherit}input:focus,button:focus-visible{outline:2px solid #208773;outline-offset:2px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.token-row{display:flex;gap:6px}.token-row input{min-width:0;flex:1}.token-row button{width:auto;padding:7px 11px;flex:none;margin:0}.buttons{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:10px}button{padding:10px;background:#086754;color:#fff;border:0;border-radius:7px;font-weight:650;cursor:pointer;margin:6px 0 0;font:inherit}button.secondary{background:#28516d}button.ghost{background:#e4efec;color:#0a5446}button:disabled{opacity:.6;cursor:wait}button.wide{width:100%}#status{border-radius:7px;background:#e5f1ed;padding:9px;margin:12px 0 7px;font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}#status.error{background:#ffebea;color:#942515}#status.ok{background:#def2e8;color:#18563e}pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:190px;overflow:auto;background:#e6ece9;padding:9px;border-radius:6px;font-size:11px;margin:8px 0 0}.foot{margin:9px 0;font-size:11px;color:#506a63}
+</style>
+</head>
+<body>
+<h1>Site Reconstruction Toolkit v3.3.1</h1>
+<p class="subtitle">Inspect sites you own or have permission to analyze. Keep <code>npm run server</code> running.</p>
+<label for="url">Website URL (required)</label>
+<input id="url" type="url" placeholder="https://www.example.com/" autocomplete="url" required>
+<button id="currentTab" class="ghost wide" type="button">Use Current Website Tab</button>
+<div class="grid">
+  <div><label for="pages">Maximum pages</label><input id="pages" type="number" value="5" min="1" max="200"></div>
+  <div><label for="depth">Maximum depth</label><input id="depth" type="number" value="1" min="0" max="8"></div>
+</div>
+<label class="check"><input id="interactions" type="checkbox"> Record safe hover, focus &amp; disclosures</label>
+<label class="check"><input id="savehtml" type="checkbox"> Save sanitized rendered HTML</label>
+<label class="check"><input id="assets" type="checkbox"> Download permitted same-origin assets</label>
+<label class="check"><input id="archiveSource" type="checkbox"> Archive permitted same-origin public CSS/JS (opt-in, review rights)</label>
+<label class="check"><input id="motion" type="checkbox"> Sample motion frames (slower)</label>
+<label class="check"><input id="structuralMap" type="checkbox"> Capture complete bounded DOM/layout tree per viewport (larger output)</label>
+<label class="check"><input id="ossIntelligence" type="checkbox"> Open-source analysis: axe, Readability, PostCSS (optional packages)</label>
+<label for="token">Session token from CURRENT server (required)</label>
+<div class="token-row"><input id="token" type="password" placeholder="Paste the token printed by npm run server" autocomplete="off" spellcheck="false"><button id="toggleToken" class="ghost" type="button">Show</button></div>
+<button id="testConnection" class="ghost wide" type="button">Test Connection / Token</button>
+<button id="scan" class="wide" type="button">Start Website Scan</button>
+<div class="buttons"><button id="capture" class="secondary" type="button">Capture Current Tab</button><button id="refresh" class="secondary" type="button">Refresh Last Job</button></div>
+<button id="cancel" class="secondary wide" type="button">Cancel Last Job</button>
+<div id="status" role="status" aria-live="polite">Paste the current server token, then click Test Connection.</div>
+<pre id="details" aria-label="Job details"></pre>
+<div class="foot">Local API: 127.0.0.1:4319. Tokens change when the server restarts. Never share them.</div>
+<script src="popup.js"></script>
+</body></html>

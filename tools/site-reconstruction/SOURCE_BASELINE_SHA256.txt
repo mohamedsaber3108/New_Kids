@@ -1,0 +1,3 @@
+Baseline input: site-reconstruction-toolkit-v3.3.1-section-hotfix.zip
+SHA256: 2faf616a90c831142bc3e9d2172b978247b949978e21896cfb77021de7f65056
+This Kiro bundle contains the source from that ZIP plus new helper scripts, two small crawler changes, and documentation. No site scan output or USAM source repository is bundled.

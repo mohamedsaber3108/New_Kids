@@ -1,0 +1,8 @@
+node_modules/
+output/
+comparison/
+.env
+*.log
+__pycache__/
+*.pyc
+.enrichment-cache/

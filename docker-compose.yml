@@ -1,0 +1,39 @@
+services:
+  usam-kids-web:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:80"
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      usam-kids-api:
+        condition: service_healthy
+  usam-kids-api:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    environment:
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?Set PUBLIC_ORIGIN in a protected .env file}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?Set ADMIN_EMAIL in a protected .env file}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in a protected .env file}
+      RESET_WEBHOOK_URL: ${RESET_WEBHOOK_URL:-}
+      RESET_WEBHOOK_TOKEN: ${RESET_WEBHOOK_TOKEN:-}
+      EMAIL_WEBHOOK_URL: ${EMAIL_WEBHOOK_URL:-}
+      EMAIL_WEBHOOK_TOKEN: ${EMAIL_WEBHOOK_TOKEN:-}
+      REQUIRE_GUARDIAN_CONSENT: ${REQUIRE_GUARDIAN_CONSENT:-true}
+    volumes:
+      - kids-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+volumes:
+  kids-data:

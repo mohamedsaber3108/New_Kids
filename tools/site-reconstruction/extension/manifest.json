@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "SRT v3.3 \u2014 Reconstruction Intelligence",
+  "version": "3.3.1",
+  "description": "Site-agnostic reconstruction analysis: layouts, features, journeys and passive API evidence.",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "scripting",
+    "tabs"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:4319/*"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  }
+}

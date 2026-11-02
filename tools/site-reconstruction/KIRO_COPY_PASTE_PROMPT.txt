@@ -1,0 +1,15 @@
+KIRO — EXECUTE, NOT JUST PLAN. MODIFY THE REAL USAM KIDS GIT REPOSITORY DIRECTLY AND PROVE EVERY CLAIM.
+
+Mandatory inputs (verify/read all):
+1. Toolkit source ZIP: M:\Linkedin jobs\Cources\site-reconstruction-toolkit-v3.3.1-section-hotfix.zip
+2. Complete previous scan: C:\Users\moham\Documents\SiteReconData\Prodigy-Full
+3. Agent instructions: C:\Users\moham\Documents\SiteReconData\Prodigy-Full\UNIVERSAL_RECONSTRUCTION_PROMPT.md
+4. The enhanced toolkit source, README_KIRO_AR.md and scripts in my attached ZIP.
+
+Install, inspect and TEST the complete Chrome extension, server, CLI and scan pipeline. Audit https://www.prodigygame.com/main-en and https://kids.usamif.com. For each site I am authorized to inspect, perform TWO independent scan passes, then scan further pending/uninspected route batches until documented achievable coverage is reached. Respect robots.txt, authentication, licensing and rate limits. The previous run capped at 200 inspected pages, leaving 2,259 raw queue entries, 700 uninspected links, 6 robots-excluded routes and 1,057 assets referenced but not saved. Never claim inaccessible source, private APIs or unauthorized assets have been recovered.
+
+Index ALL relevant design tokens, CSS/DOM, layouts, screenshots, responsive states, motion, interactions, assets, routes, features, prompts and quality reports. Generate one evidence-backed design/implementation brief for EVERY recorded page and a route mapping matrix, marking unscanned/excluded pages honestly.
+
+NOW CHANGE THE ACTUAL USAM FRONTEND CODE across all approved routes: shared design system, complete pages, responsive components, original USAM characters/game UX, motion, role-based journeys, real API/backend/learning-engine integrations and feasible new features. Do not make fake buttons or break existing data. Use Git checkpoint, branch, real source edits and commits; never deploy or destructively migrate without approval.
+
+Run unit/integration/E2E tests, accessibility and Playwright visual comparisons on desktop/tablet/mobile. Fix regressions; perform a SECOND verification pass after implementation. Produce actual Git diff/commit hashes, a page→code→feature→backend→test matrix, a gap report, and a verified final ZIP of the MODIFIED USAM REPOSITORY once it is accessible locally. Do NOT say “complete” unless the agreed implementation/validation gates actually pass. If blocked, show precise evidence and remaining tasks. START EXECUTING IN THE REPOSITORY NOW.

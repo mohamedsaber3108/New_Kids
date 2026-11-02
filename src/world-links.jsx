@@ -1,0 +1,10 @@
+import React from 'react';
+import {ArrowLeft} from 'lucide-react';
+const items={
+ english:[['/app/english','مدينة المهارات','English skill studio','١١ مهارة × ٣ مستويات','Eleven skills across three levels']],
+ ai:[['/app/ai/prompt-lab','مختبر الطلبات','Prompt lab','اكتب طلبًا واضحًا','Craft a clear request'],['/app/ai/bias-detective','محقق التحيّز','Bias detective','افحص الإنصاف','Examine fairness'],['/app/ai/privacy-mission','مهمة الخصوصية','Privacy mission','احمِ بياناتك','Protect your data'],['/app/ai/ethics','قرارات مسؤولة','Ethics','فكر في الأثر','Consider impact'],['/app/ai/evaluation','اختبر الإجابة','Evaluation','تحقق من الدليل','Check evidence'],['/app/ai/human-oversight','الإنسان يقرر','Human oversight','اعرف دور البشر','Know the human role']],
+ thinking:[['/app/thinking/critical','تحقق من الادعاء','Critical thinking','افحص الدليل','Check the evidence'],['/app/thinking/problem-solving','حل المشكلات','Problem solving','اختبر خطوة صغيرة','Test a small step'],['/app/thinking/computational','تفكير حاسوبي','Computational thinking','قسّم ورتب التعليمات','Break down and sequence'],['/app/simulations','محاكاة من الواقع','Real-world simulation','جرّب قرارًا وأثره','Test a decision and its impact']],
+ coding:[['/app/coding/lab','برمج الروبوت','Program a robot','خطوات وتجربة','Sequence and test'],['/app/coding/challenges','تحديات البرمجة','Coding challenges','٣ مستويات بأهداف مختلفة','Three levels with different goals']],
+ creativity:[['/app/stories','حكايات تفاعلية','Interactive stories','اختر طريق الحكاية','Choose a story path']]
+};
+export function WorldActivityLinks({world,tr,nav}){const list=items[world]||[];return <section className="world-activities"><span className="kicker">{tr('تجارب العالم','WORLD ACTIVITIES')}</span><h2>{tr('جرّب بطريقة جديدة','Try another way to learn')}</h2><div className="track-grid">{list.map(([path,ar,en,descAr,descEn])=><button className="track-card" key={path} onClick={()=>nav(path)}><span>✦</span><h3>{tr(ar,en)}</h3><p>{tr(descAr,descEn)}</p><ArrowLeft size={18}/></button>)}</div></section>}

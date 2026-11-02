@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.env*
+*.log
+
+# Local runtime data (never commit databases or secrets)
+data/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+.env
+.env.*
+coverage/
