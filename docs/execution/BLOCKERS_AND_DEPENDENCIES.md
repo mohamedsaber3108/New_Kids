@@ -1,53 +1,24 @@
 # BLOCKERS_AND_DEPENDENCIES.md
 
-## BLOCKER-001 (CRITICAL, blocks Phase 0) — "KidsNew" project identity not resolvable from disk
+## RESOLVED — Project identity (correction directive, names are USAM-based)
 
-The latest directive sets strict project boundaries by NAME, but those names do not map
-cleanly to any directory on `M:\`. The directive explicitly says: if a directory cannot be
-confidently identified as **KidsNew** or the permitted reference **Yozem Learning (the
-project named "Kids")**, do NOT inspect/use it — ask for clarification.
-
-### What the directive names vs. what exists on disk
-| Directive name | Role | Found on disk? |
+| Directive name | Role | Resolved location (verified) |
 |---|---|---|
-| **KidsNew** | THE product; the exact new frontend = source of truth | NO folder named KidsNew. Closest: `M:\Kids _New\` (our workspace) whose only app is `app/` = the **USAM Kids v20** ZIP extraction (React 18 JS + Node http + SQLite). |
-| **Yozem Learning** ("the project named Kids") | ONLY permitted reference (later phase) | NO folder named "Yozem". A `Kids/` subfolder exists INSIDE `M:\USAM Learning Worlds\` (the USAM-Learning-Worlds repo). |
-| **Yozem Kids** | EXCLUDED | No literal match. |
-| **Yozem** | EXCLUDED | No literal match. |
-| **Yozem Main** | EXCLUDED | No literal match. Possibly `M:\USAM-main`? (unconfirmed) |
+| **USAM_New** (= "KidsNew") | PRIMARY product; its uploaded frontend is the ONLY source of truth | `M:\Kids _New\app` — verified: React 18 JS SPA + Node `http` + SQLite; `npm ci` + `npm run build` succeed; 28 JSX modules in `src/`. This is the workspace I was given as the task root. |
+| **USAM Learning World** (`USAM Learning Worlds`) | REFERENCE ONLY, later phase (Stage/Phase: after core USAM_New is built & integrated) | `M:\USAM Learning Worlds` and/or `M:\USAM-main` (both = GitHub `mohamedsaber3108/USAM-Learning-Worlds`). NOT inspected for code reuse yet — reference phase not started. |
+| **USAM Kids** | EXCLUDED | Do not inspect/use. (Note: the USAM_New frontend brands itself "USAM Kids" internally, but per directive §4 the product name ≠ directory; `M:\Kids _New\app` is USAM_New, not the excluded project.) |
+| **USAM** / **USAM Main** | EXCLUDED | `M:\USAM`, `M:\USAM-main` region names — do not inspect/use. Other loose folders (`Old USAM`, `USammm`, `USAM-Master-Ecosystem`, `USAMKO`, `E-USAM`) are out of scope. |
 
-No directory named `Yozem*` exists anywhere on `M:\`. No directory named `KidsNew` exists.
+### Verification performed for USAM_New = `M:\Kids _New\app`
+- It is the only app inside the given workspace `M:\Kids _New` (siblings: `extracted/` raw ZIP,
+  `Kids-*.zip` original, `Backend Prompt.md` which belongs to the unrelated English Website).
+- `npm ci` clean; `npm run build` → `dist/` (518 KB bundle) succeeds. Frontend intact.
+- Git baseline clean at the latest commit; migration framework + 37-test suite in place.
 
-### The two plausible interpretations (I will NOT guess between them)
-1. **KidsNew = `M:\Kids _New\app`** (the USAM Kids v20 ZIP I already baselined). Then I build
-   the backend around THIS frontend. But its README brands it "USAM Kids" and it is a
-   JS/SQLite monolith, which may or may not be the "new design direction" the directive means.
-2. **KidsNew = a different, newer frontend not yet uploaded** to this workspace, and the ZIP
-   in `app/` is actually the "Kids" reference project. In that case I must STOP and wait for
-   the real KidsNew frontend, per directive §2/§16.
+### Reference-phase guardrail
+USAM Learning World will be analyzed ONLY after USAM_New's core backend is implemented and
+integrated (directive Stage order). Until then it stays strictly read-only and untouched.
 
-If "Yozem" is a rebrand/codename of "USAM", then USAM-Learning-Worlds could be the permitted
-"Yozem Learning" reference — but it could equally be one of the EXCLUDED "Yozem *" projects.
-Inspecting it for reuse while it is actually excluded would be a hard violation.
-
-### Why this is escalated, not defaulted
-- Guessing wrong → either build on the wrong frontend, or inspect/import from an EXPLICITLY
-  EXCLUDED project. Both are costly and the second is a direct boundary violation.
-- The directive itself mandates asking when identity is not confident.
-
-### What I have NOT done (safety)
-- Not inspected any USAM-Learning-Worlds / USAM-main / USAMKO / USAM-Master-Ecosystem CODE
-  for reuse. Discovery recorded only repo identity (remote/branch/stack) from prior cycles.
-- Not copied anything from any other project into `m:\Kids _New\app`.
-- Not modified any frontend.
-
-### Questions needed to unblock (minimal)
-1. Is **KidsNew = `M:\Kids _New\app`** (the current ZIP frontend)? If NO, where is the exact
-   KidsNew frontend (path or upload)?
-2. Which exact directory/repo is **Yozem Learning (the "Kids" project)** — the permitted
-   reference? (e.g. `M:\USAM Learning Worlds`, its `Kids/` subfolder, or something else.)
-3. Confirm which directories are the EXCLUDED **Yozem Kids / Yozem / Yozem Main** so I never
-   touch them (candidates on disk: `M:\USAM-main`, `M:\USAM`, `M:\Old USAM`, `M:\USammm`,
-   `M:\USAM-Master-Ecosystem`, `M:\USAMKO`, `M:\E-USAM`).
-
-Until answered, Phase 0 cannot safely proceed to implementation of "KidsNew".
+## Active external blockers (do not stop other work)
+- Email/AI/payments/voice providers: no credentials — will build disabled adapters + document.
+- EC2/domain/TLS/secret store: cannot provision AWS — will prepare scripts/docs only.
