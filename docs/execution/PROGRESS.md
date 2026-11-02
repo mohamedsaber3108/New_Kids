@@ -26,7 +26,11 @@ after every meaningful change so work can resume without repeating discovery.
 
 ## Phase status
 - [x] Phase 1 — Discovery & baseline (git init, verified build/test/API, docs started)
-- [ ] Phase 2 — Architecture & integration map + core foundation (migrations, validation, logging, config)
+- [~] Phase 2 — Core foundation IN PROGRESS:
+      - [x] Versioned SQLite migration framework (server/migrate.mjs) + tests (37/37 pass)
+      - [ ] Uniform input validation layer
+      - [ ] Structured JSON logging + request tracing polish
+      - [ ] Config/secrets module with startup validation + .env.example
 - [ ] Phase 3 — Core foundation (auth/permissions hardening, API contracts, observability)
 - [ ] Phase 4 — Learning engines completion
 - [ ] Phase 5 — Product experiences (learner/guardian/moderator/admin/public)
@@ -40,6 +44,15 @@ after every meaningful change so work can resume without repeating discovery.
 | Date | Commit | What changed |
 |---|---|---|
 | 2026-11-03 | 5430d8b | Baseline checkpoint committed; .gitignore hardened (data/, *.db, .env). |
+| 2026-11-03 | 3632a3e | Versioned migration framework + tests; execution docs. Full suite 37/37. |
+
+## Testing notes / gotchas
+- Run tests with a CLEAN environment. Do NOT export PUBLIC_ORIGIN / ADMIN_EMAIL /
+  ADMIN_PASSWORD / DB_FILE / REQUIRE_GUARDIAN_CONSENT in the test shell: createApp()
+  reads process.env as defaults, and a leaked PUBLIC_ORIGIN makes every in-test
+  mutation fail with `origin_mismatch` (false "4 failing tests"). Confirmed: with a
+  clean env the suite is 37/37. (If needed: `Remove-Item Env:PUBLIC_ORIGIN,...`)
+- Node here is v26; project targets Node 24. `node:sqlite` works on both.
 
 ## Open blockers (need user/external input — work continues around them)
 - Email provider credentials (verification/reset delivery) — build adapter, leave disabled.
