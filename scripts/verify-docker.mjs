@@ -63,6 +63,16 @@ try{
  const learner=(await call('/api/guardians/learners/'+child.data.id+'/enter',{method:'POST',cookie:reg.cookie,body:{}})).cookie;
  const attempt=await call('/api/attempts',{method:'POST',cookie:learner,body:{missionId:'coding-square',answers:[0,1,0]}});
  ok('learner attempt scored + saved',attempt.status===201&&typeof attempt.data.score==='number',JSON.stringify(attempt.data).slice(0,200));
+ // Approved change 1: companion choice persists on the server.
+ await call('/api/learner/preferences',{method:'POST',cookie:learner,body:{language:'ar',interest:'coding',goal:'make',build:'game',companion:'azouz'}});
+ const pick=await call('/api/learner/companion',{method:'PUT',cookie:learner,body:{companionId:'luma'}});
+ ok('companion choice saved through proxy',pick.status===200,JSON.stringify(pick.data));
+ ok('companion choice in persisted snapshot',(await call('/api/learners/'+child.data.id+'/snapshot',{cookie:learner})).data.preferences?.companion==='luma');
+ // Approved change 2: guardian live-AI opt-in (no provider configured in this stack -> honest unavailable).
+ const guardianAgain=(await call('/api/auth/login',{method:'POST',body:{email:'parent@verify.local',password:'Verify-Guardian-Password-123'}})).cookie;
+ const controls=(await call('/api/guardian/children/'+child.data.id+'/controls',{cookie:guardianAgain})).data.controls;
+ ok('live AI off by default and honestly unavailable',controls.liveAiAllowed===false&&controls.liveAiAvailable===false,JSON.stringify(controls));
+ ok('learner cannot change guardian controls',(await call('/api/guardian/children/'+child.data.id+'/controls',{method:'PATCH',cookie:learner,body:{guidesEnabled:true,voiceEnabled:true,liveAiAllowed:true}})).status===403);
  const mod=await call('/api/auth/login',{method:'POST',body:{email:'mod@verify.local',password:'Verify-Moderator-Password-123'}});
  ok('moderator login + queue',mod.status===200&&(await call('/api/moderation/queue',{cookie:mod.cookie})).status===200);
 

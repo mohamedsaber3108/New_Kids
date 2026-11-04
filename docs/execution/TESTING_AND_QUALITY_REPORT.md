@@ -6,15 +6,15 @@ ADMIN_* / MODERATOR_* / DB_FILE / NODE_ENV exported). Latest run on the current 
 ## Gates
 | Gate | Command | Result |
 |---|---|---|
-| Unit + integration | `npm test` | **63 / 63** |
+| Unit + integration | `npm test` | **69 / 69** (incl. 6 tests for the two approved frontend changes) |
 | Happy-path journey | `node tests/journey.e2e.mjs` | **18 / 18** |
 | Feature-by-feature (invalid input, roles, cross-account, boundaries, restart) | `node tests/comprehensive.e2e.mjs` | **50 / 50** |
 | Every learning lab: frontend-built payload == server score, persisted | `node tests/content-parity.e2e.mjs` | **457 / 457** |
 | Every guardian/admin/moderator frontend call + cascades + denials | `node tests/roles.e2e.mjs` | **75 / 75** |
 | Real process entrypoint (config gate, logs, health, DB file) | `node scripts/verify-entrypoint.mjs` | **7 / 7** |
 | Production frontend build | `npm run build` | **succeeds** |
-| **Real Docker images through Nginx** (build, run, journey, headers/CSP, backup+restore, restart, non-root, read-only, prod config gate) | `node scripts/verify-docker.mjs` | **34 / 34** |
-| Frontend unchanged | `git diff 5430d8b -- src index.html vite.config.js` | **empty** |
+| **Real Docker images through Nginx** (build, run, journey, headers/CSP, backup+restore, restart, non-root, read-only, prod config gate, companion persistence, live-AI opt-in state) | `node scripts/verify-docker.mjs` | **38 / 38** |
+| Frontend vs baseline | `git diff 5430d8b -- src index.html vite.config.js` | **only the 2 approved files**: `src/main.jsx` (+3/−3), `src/operations.jsx` (+2/−2) |
 
 `npm run verify` runs every gate except Docker; `npm run verify:docker` runs the Docker gate.
 

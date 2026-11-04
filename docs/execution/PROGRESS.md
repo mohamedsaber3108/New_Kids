@@ -53,7 +53,8 @@ after every meaningful change so work can resume without repeating discovery.
 - [x] Phase 5 — Docker build+runtime verified (34/34), Nginx header/CSP defect D8 fixed,
       `server/restore.mjs` + tests, DEPLOYMENT_RUNBOOK.md
 - [x] Concurrency/abuse tests (duplicate completion, racing answers, rate limits, body abuse)
-- [ ] Awaiting approval: 2 small frontend changes (BLOCKERS_AND_DEPENDENCIES.md)
+- [x] Approved frontend changes implemented: companion persistence (`src/main.jsx`), guardian
+      live-AI opt-in (`src/operations.jsx`). Verified: unit 69/69, verify all green, docker 38/38.
 - [ ] Awaiting accounts: email/AI/payment providers, AWS, legal text
 - [ ] Phase 6 — USAM Learning World reference review (only after you confirm core is accepted)
 - [ ] Phase 3 — Core foundation (auth/permissions hardening, API contracts, observability)

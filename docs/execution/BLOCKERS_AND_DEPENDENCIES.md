@@ -7,11 +7,11 @@
 | USAM Learning World(s) | Reference only, after core completion — not yet analyzed | `M:\USAM Learning Worlds`, `M:\USAM-main` |
 | USAM Kids / USAM / USAM Main | Excluded — never inspected or used | — |
 
-## Needs your approval (frontend change)
-| Item | File | Change | Why | Impact |
-|---|---|---|---|---|
-| Companion switch not saved | `src/main.jsx` (CompanionCard, world guide button, "Ask Adam") | after `update({activeCompanion})`, also call a server endpoint to save the learner's chosen companion | today the choice resets on reload in backend mode (onboarding choice is saved; later switches are not) | invisible to the UI; one extra request. Backend endpoint can be added the moment you approve. |
-| Guardian live-AI opt-in toggle | guardian child Safety tab (`src/operations.jsx`) | a checkbox that sends `liveAiAllowed` to the existing `PATCH /api/guardian/children/:id/controls` | backend already supports it; without a UI, live AI stays off for every child (safe default) | only needed if you enable live AI |
+## Approved frontend changes — DONE (only these two; rest of frontend unchanged vs baseline)
+| Item | Files | Change | Evidence |
+|---|---|---|---|
+| Companion choice persisted | `src/main.jsx` | `chooseCompanion` helper + 3 call sites → `PUT /api/learner/companion`; restore via existing snapshot hydration | tests/approved-changes.test.mjs; verify-docker |
+| Guardian live-AI opt-in | `src/operations.jsx` | checkbox in existing "Child experience controls" form; sends `liveAiAllowed`; honest unavailable text when no provider | tests/approved-changes.test.mjs; verify-docker |
 
 ## Needs your accounts / decisions (integration code is built and tested)
 | Dependency | What is ready | What you provide |
