@@ -67,6 +67,9 @@ export function createApp({database=':memory:',publicOrigin=process.env.PUBLIC_O
     if(!validPassword(moderatorPassword))throw new Error('MODERATOR_PASSWORD must be at least 12 characters');
     db.prepare('INSERT INTO users(id,role,email,password_hash,display_name,guardian_approved_at,created_at) VALUES(?,?,?,?,?,?,?)').run(id(),'MODERATOR',moderatorEmail.toLowerCase(),passwordHash(moderatorPassword),'USAM Moderator',now(),now());
   }
+  // In-flight live-AI requests per learner, so a guardian revocation can cancel them mid-flight.
+  const aiInflight=new Map();
+  function abortLiveAI(learnerId){const set=aiInflight.get(learnerId);if(set)for(const c of set)c.abort();aiInflight.delete(learnerId)}
   // Removes expired sessions and one-time tokens. Returns counts; safe to run repeatedly.
   function cleanupExpired(at=Date.now()){
     const sessions=db.prepare('DELETE FROM sessions WHERE expires_at<=?').run(at).changes;
@@ -191,7 +194,7 @@ export function createApp({database=':memory:',publicOrigin=process.env.PUBLIC_O
           if(!requireRole(res,s,['GUARDIAN']))return;
           if(method==='GET'){const current=db.prepare('SELECT policy_version AS policyVersion,attested_at AS attestedAt,withdrawn_at AS withdrawnAt FROM guardian_consents WHERE guardian_id=? ORDER BY attested_at DESC LIMIT 1').get(s.user_id)||null;return json(res,200,{required:guardianConsentRequired,policyVersion:'2026-10-child-service-v1',current})}
           if(method==='POST'){const b=await body(req);if(b.policyVersion!=='2026-10-child-service-v1'||b.attestation!==true)return fail(res,400,'consent_attestation_required');db.prepare('INSERT INTO guardian_consents VALUES(?,?,?,NULL) ON CONFLICT(guardian_id,policy_version) DO UPDATE SET attested_at=excluded.attested_at,withdrawn_at=NULL').run(s.user_id,b.policyVersion,now());audit(s.user_id,'GUARDIAN_CONSENT_ATTESTED','user',s.user_id);return json(res,200,{consented:true,policyVersion:b.policyVersion})}
-          if(method==='DELETE'){db.prepare('UPDATE guardian_consents SET withdrawn_at=? WHERE guardian_id=? AND withdrawn_at IS NULL').run(now(),s.user_id);db.prepare('DELETE FROM sessions WHERE user_id=? AND learner_id IS NOT NULL').run(s.user_id);audit(s.user_id,'GUARDIAN_CONSENT_WITHDRAWN','user',s.user_id);return json(res,200,{withdrawn:true,childSessionsRevoked:true})}
+          if(method==='DELETE'){for(const child of db.prepare('SELECT id FROM learners WHERE guardian_id=?').all(s.user_id))abortLiveAI(child.id);db.prepare('UPDATE guardian_consents SET withdrawn_at=? WHERE guardian_id=? AND withdrawn_at IS NULL').run(now(),s.user_id);db.prepare('DELETE FROM sessions WHERE user_id=? AND learner_id IS NOT NULL').run(s.user_id);audit(s.user_id,'GUARDIAN_CONSENT_WITHDRAWN','user',s.user_id);return json(res,200,{withdrawn:true,childSessionsRevoked:true})}
         }
         if(method==='GET'&&p==='/api/guardians/learners'){if(!requireRole(res,s,['GUARDIAN']))return;return json(res,200,{learners:db.prepare('SELECT id,nickname,age_band,age_year,created_at FROM learners WHERE guardian_id=? ORDER BY created_at DESC').all(s.user_id)})}
         if(method==='GET'&&p==='/api/parents/children'){if(!requireRole(res,s,['GUARDIAN']))return;return json(res,200,{children:db.prepare('SELECT id,nickname,age_band AS ageBand,age_year AS ageYear,created_at AS createdAt FROM learners WHERE guardian_id=? ORDER BY created_at DESC').all(s.user_id)})}
@@ -350,8 +353,14 @@ export function createApp({database=':memory:',publicOrigin=process.env.PUBLIC_O
           let reply=guidance.reply,mode='GUIDED_RULES',fallback;
           if(aiGuide&&learnerControls(s.learner_id).liveAiAllowed){
             const learnerRow=db.prepare('SELECT age_band FROM learners WHERE id=?').get(s.learner_id),companion=companions.find(c=>c.id===b.companionId),mission=missions.find(m=>m.id===b.missionId);
-            const live=await aiGuide({learnerId:s.learner_id,message:b.message.trim(),companion:companion.en,ageBand:learnerRow?.age_band||'7-15',missionTitle:mission?.en});
-            if(live.ok){reply=live.reply;mode='LIVE_AI'}else fallback=live.reason;
+            const controller=new AbortController();if(!aiInflight.has(s.learner_id))aiInflight.set(s.learner_id,new Set());aiInflight.get(s.learner_id).add(controller);
+            let live;try{live=await aiGuide({learnerId:s.learner_id,message:b.message.trim(),companion:companion.en,ageBand:learnerRow?.age_band||'7-15',missionTitle:mission?.en,signal:controller.signal})}finally{aiInflight.get(s.learner_id)?.delete(controller)}
+            // Re-check consent AFTER the provider answered: a revocation during the call wins.
+            if(!session(req))return fail(res,401,'sign_in_required'); // consent withdrawn or child deleted mid-call
+            const still=learnerControls(s.learner_id);
+            if(!still.guidesEnabled)return fail(res,403,'guides_disabled_by_guardian');
+            if(live.ok&&still.liveAiAllowed){reply=live.reply;mode='LIVE_AI'}
+            else fallback=(controller.signal.aborted||!still.liveAiAllowed)?'consent_revoked':live.reason;
           }
           db.prepare('INSERT INTO conversation_messages VALUES(?,?,?,?,?)').run(id(),conversationId,b.message.trim(),reply,now());db.prepare('UPDATE conversations SET updated_at=? WHERE id=?').run(now(),conversationId);
           return json(res,200,{state:guidance.state,reply,mode,...(fallback?{fallback}:{}),conversationId});
@@ -371,7 +380,7 @@ export function createApp({database=':memory:',publicOrigin=process.env.PUBLIC_O
         const controlsRoute=p.match(/^\/api\/guardian\/children\/([^/]+)\/controls$/);
         if(controlsRoute){if(!requireRole(res,s,['GUARDIAN']))return;if(!linked(res,s,controlsRoute[1]))return;
           if(method==='GET')return json(res,200,{controls:{...learnerControls(controlsRoute[1]),liveAiAvailable:!!aiGuide}});
-          if(method==='PATCH'){const b=await body(req);if(typeof b.guidesEnabled!=='boolean'||typeof b.voiceEnabled!=='boolean'||(b.liveAiAllowed!==undefined&&typeof b.liveAiAllowed!=='boolean'))return fail(res,400,'invalid_controls');const keepLiveAi=b.liveAiAllowed===undefined?(learnerControls(controlsRoute[1]).liveAiAllowed?1:0):(b.liveAiAllowed?1:0);db.prepare('INSERT INTO learner_controls(learner_id,guides_enabled,voice_enabled,updated_at,live_ai_allowed) VALUES(?,?,?,?,?) ON CONFLICT(learner_id) DO UPDATE SET guides_enabled=excluded.guides_enabled,voice_enabled=excluded.voice_enabled,live_ai_allowed=excluded.live_ai_allowed,updated_at=excluded.updated_at').run(controlsRoute[1],b.guidesEnabled?1:0,b.voiceEnabled?1:0,now(),keepLiveAi);audit(s.user_id,b.liveAiAllowed===undefined?'LEARNER_CONTROLS_UPDATED':'LEARNER_LIVE_AI_'+(b.liveAiAllowed?'ALLOWED':'REVOKED'),'learner',controlsRoute[1]);return json(res,200,{controls:{...learnerControls(controlsRoute[1]),liveAiAvailable:!!aiGuide}})}
+          if(method==='PATCH'){const b=await body(req);if(typeof b.guidesEnabled!=='boolean'||typeof b.voiceEnabled!=='boolean'||(b.liveAiAllowed!==undefined&&typeof b.liveAiAllowed!=='boolean'))return fail(res,400,'invalid_controls');const keepLiveAi=b.liveAiAllowed===undefined?(learnerControls(controlsRoute[1]).liveAiAllowed?1:0):(b.liveAiAllowed?1:0);db.prepare('INSERT INTO learner_controls(learner_id,guides_enabled,voice_enabled,updated_at,live_ai_allowed) VALUES(?,?,?,?,?) ON CONFLICT(learner_id) DO UPDATE SET guides_enabled=excluded.guides_enabled,voice_enabled=excluded.voice_enabled,live_ai_allowed=excluded.live_ai_allowed,updated_at=excluded.updated_at').run(controlsRoute[1],b.guidesEnabled?1:0,b.voiceEnabled?1:0,now(),keepLiveAi);audit(s.user_id,b.liveAiAllowed===undefined?'LEARNER_CONTROLS_UPDATED':'LEARNER_LIVE_AI_'+(b.liveAiAllowed?'ALLOWED':'REVOKED'),'learner',controlsRoute[1]);if(!keepLiveAi||!b.guidesEnabled)abortLiveAI(controlsRoute[1]);return json(res,200,{controls:{...learnerControls(controlsRoute[1]),liveAiAvailable:!!aiGuide}})}
         }
         const timeLimitsRoute=p.match(/^\/api\/guardian\/children\/([^/]+)\/time-limits$/);
         if(timeLimitsRoute){if(!requireRole(res,s,['GUARDIAN']))return;if(!linked(res,s,timeLimitsRoute[1]))return;
@@ -389,7 +398,7 @@ export function createApp({database=':memory:',publicOrigin=process.env.PUBLIC_O
           db.prepare('UPDATE learners SET nickname=?,age_band=?,age_year=? WHERE id=? AND guardian_id=?').run(b.nickname.trim(),ageBand,ageYear,editChild[1],s.user_id);audit(s.user_id,'LEARNER_UPDATED','learner',editChild[1]);return json(res,200,{learner:db.prepare('SELECT id,nickname,age_band,age_year FROM learners WHERE id=?').get(editChild[1])});
         }
         const remove=p.match(/^\/api\/guardian\/children\/([^/]+)$/);
-        if(method==='DELETE'&&remove){if(!requireRole(res,s,['GUARDIAN']))return;if(!linked(res,s,remove[1]))return;const b=await body(req);if(b.confirm!==remove[1])return fail(res,400,'confirmation_required');db.prepare('DELETE FROM learners WHERE id=? AND guardian_id=?').run(remove[1],s.user_id);audit(s.user_id,'LEARNER_DELETED','learner',remove[1]);return json(res,200,{deleted:true})}
+        if(method==='DELETE'&&remove){if(!requireRole(res,s,['GUARDIAN']))return;if(!linked(res,s,remove[1]))return;const b=await body(req);if(b.confirm!==remove[1])return fail(res,400,'confirmation_required');abortLiveAI(remove[1]);db.prepare('DELETE FROM learners WHERE id=? AND guardian_id=?').run(remove[1],s.user_id);audit(s.user_id,'LEARNER_DELETED','learner',remove[1]);return json(res,200,{deleted:true})}
         if(method==='GET'&&p==='/api/moderation/queue'){if(!requireRole(res,s,['MODERATOR','ADMIN']))return;return json(res,200,{reports:db.prepare('SELECT id,reason,status,created_at FROM reports WHERE status=? ORDER BY created_at ASC').all('OPEN')})}
         if(method==='GET'&&p==='/api/moderation/reports'){if(!requireRole(res,s,['MODERATOR','ADMIN']))return;return json(res,200,{reports:db.prepare('SELECT id,reason,status,resolution,created_at,resolved_at FROM reports ORDER BY created_at DESC LIMIT 100').all()})}
         if(method==='GET'&&p==='/api/moderation/audit'){if(!requireRole(res,s,['MODERATOR','ADMIN']))return;return json(res,200,{audit:db.prepare("SELECT action,target_id,created_at FROM audit WHERE target_type='report' ORDER BY created_at DESC LIMIT 100").all()})}

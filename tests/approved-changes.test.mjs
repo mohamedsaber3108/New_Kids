@@ -140,3 +140,112 @@ test('frontend: companion switches call the persistence endpoint; guardian form 
  assert.match(ops,/disabled=\{!controls\.liveAiAvailable&&!controls\.liveAiAllowed\}/,'unavailable state: cannot newly enable, can still revoke');
  assert.match(ops,/Live AI is not available on this server right now/);
 });
+
+// ============ In-flight revocation (requests already waiting on the AI provider) ============
+function slowProvider({honourAbort}){
+ const state={calls:0,aborted:0,pending:[],started:null};
+ let notify;state.started=new Promise(r=>notify=r);
+ state.fetchImpl=(url,init)=>new Promise((resolve,reject)=>{
+  state.calls++;notify();
+  const reply={ok:true,status:200,json:async()=>({choices:[{message:{content:'LIVE PROVIDER REPLY'}}],usage:{}}),headers:{get:()=>null}};
+  state.pending.push(()=>resolve(reply));
+  if(honourAbort)init.signal.addEventListener('abort',()=>{state.aborted++;reject(Object.assign(new Error('aborted'),{name:'AbortError'}))},{once:true});
+ });
+ state.release=()=>{for(const r of state.pending.splice(0))r()};
+ return state;
+}
+const aiSettings={provider:'openai',key:'k',model:'m',dailyLimit:50,timeoutMs:10000,maxTokens:200,maxReplyChars:600};
+const allow=(t,fam,kid,liveAiAllowed,guidesEnabled=true)=>t.call('/api/guardian/children/'+kid+'/controls',{method:'PATCH',cookie:fam.guardian,body:{guidesEnabled,voiceEnabled:true,liveAiAllowed}});
+
+test('in-flight: revoking consent cancels a pending provider call; the child gets rules, nothing live is stored',async()=>{
+ const p=slowProvider({honourAbort:true});
+ const t=await start({aiSettings,fetchImpl:p.fetchImpl});
+ try{
+  const fam=await t.family('f1@example.test');const kid=fam.children[0];const learner=await t.enter(fam,kid);
+  await allow(t,fam,kid,true);
+  const pending=t.call('/api/assist',{method:'POST',cookie:learner,body:{message:'how do I start?',companionId:'codey'}});
+  await p.started;
+  await allow(t,fam,kid,false);
+  const r=await pending;
+  assert.equal(p.aborted,1,'provider request was cancelled mid-flight');
+  assert.equal(r.status,200);assert.equal(r.data.mode,'GUIDED_RULES');assert.equal(r.data.fallback,'consent_revoked');
+  assert.notEqual(r.data.reply,'LIVE PROVIDER REPLY');
+  const stored=(await t.call('/api/conversations/'+r.data.conversationId,{cookie:learner})).data.messages;
+  assert.ok(stored.every(m=>m.reply!=='LIVE PROVIDER REPLY'),'no live reply persisted after revocation');
+ }finally{await t.stop()}
+});
+
+test('in-flight: even if the provider ignores cancellation, a reply arriving after revocation is discarded',async()=>{
+ const p=slowProvider({honourAbort:false});
+ const t=await start({aiSettings,fetchImpl:p.fetchImpl});
+ try{
+  const fam=await t.family('f2@example.test');const kid=fam.children[0];const learner=await t.enter(fam,kid);
+  await allow(t,fam,kid,true);
+  const pending=t.call('/api/assist',{method:'POST',cookie:learner,body:{message:'how do I start?',companionId:'codey'}});
+  await p.started;await allow(t,fam,kid,false);p.release();
+  const r=await pending;
+  assert.equal(r.data.mode,'GUIDED_RULES');assert.equal(r.data.fallback,'consent_revoked');assert.notEqual(r.data.reply,'LIVE PROVIDER REPLY');
+ }finally{await t.stop()}
+});
+
+test('in-flight: several concurrent live requests are all stopped by one revocation',async()=>{
+ const p=slowProvider({honourAbort:true});
+ const t=await start({aiSettings,fetchImpl:p.fetchImpl});
+ try{
+  const fam=await t.family('f3@example.test');const kid=fam.children[0];const learner=await t.enter(fam,kid);
+  await allow(t,fam,kid,true);
+  const asks=[1,2,3].map(n=>t.call('/api/assist',{method:'POST',cookie:learner,body:{message:'question number '+n,companionId:'codey'}}));
+  while(p.calls<3)await new Promise(r=>setTimeout(r,5));
+  await allow(t,fam,kid,false);
+  const results=await Promise.all(asks);
+  assert.equal(p.aborted,3);assert.ok(results.every(r=>r.data.mode==='GUIDED_RULES'&&r.data.fallback==='consent_revoked'),JSON.stringify(results.map(r=>r.data)));
+  const callsAfter=p.calls;
+  assert.equal((await t.call('/api/assist',{method:'POST',cookie:learner,body:{message:'after revoke',companionId:'codey'}})).data.mode,'GUIDED_RULES');
+  assert.equal(p.calls,callsAfter,'no new provider call after revocation');
+ }finally{await t.stop()}
+});
+
+test('in-flight: turning Guides off mid-call returns 403 and stores nothing',async()=>{
+ const p=slowProvider({honourAbort:true});
+ const t=await start({aiSettings,fetchImpl:p.fetchImpl});
+ try{
+  const fam=await t.family('f4@example.test');const kid=fam.children[0];const learner=await t.enter(fam,kid);
+  await allow(t,fam,kid,true);
+  const before=t.app.db.prepare('SELECT count(*) AS n FROM conversation_messages').get().n;
+  const pending=t.call('/api/assist',{method:'POST',cookie:learner,body:{message:'how do I start?',companionId:'codey'}});
+  await p.started;await allow(t,fam,kid,true,false);
+  const r=await pending;
+  assert.equal(r.status,403);assert.equal(r.data.error,'guides_disabled_by_guardian');
+  assert.equal(t.app.db.prepare('SELECT count(*) AS n FROM conversation_messages').get().n,before,'nothing stored');
+ }finally{await t.stop()}
+});
+
+test('in-flight: withdrawing family consent mid-call ends the child session (401) and stores nothing',async()=>{
+ const p=slowProvider({honourAbort:true});
+ const t=await start({aiSettings,fetchImpl:p.fetchImpl});
+ try{
+  const fam=await t.family('f5@example.test');const kid=fam.children[0];const learner=await t.enter(fam,kid);
+  await allow(t,fam,kid,true);
+  const pending=t.call('/api/assist',{method:'POST',cookie:learner,body:{message:'how do I start?',companionId:'codey'}});
+  await p.started;
+  assert.equal((await t.call('/api/guardian/consent',{method:'DELETE',cookie:fam.guardian})).status,200);
+  const r=await pending;
+  assert.equal(r.status,401);assert.equal(p.aborted,1);
+  assert.equal(t.app.db.prepare('SELECT count(*) AS n FROM conversation_messages').get().n,0);
+ }finally{await t.stop()}
+});
+
+test('in-flight: deleting the child mid-call fails cleanly (no 500)',async()=>{
+ const p=slowProvider({honourAbort:false});
+ const t=await start({aiSettings,fetchImpl:p.fetchImpl});
+ try{
+  const fam=await t.family('f6@example.test');const kid=fam.children[0];const learner=await t.enter(fam,kid);
+  await allow(t,fam,kid,true);
+  const pending=t.call('/api/assist',{method:'POST',cookie:learner,body:{message:'how do I start?',companionId:'codey'}});
+  await p.started;
+  assert.equal((await t.call('/api/guardian/children/'+kid,{method:'DELETE',cookie:fam.guardian,body:{confirm:kid}})).status,200);
+  p.release();
+  const r=await pending;
+  assert.equal(r.status,401,'child deleted: request ends as signed-out, not a server error');
+ }finally{await t.stop()}
+});

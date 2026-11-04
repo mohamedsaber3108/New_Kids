@@ -72,7 +72,8 @@ export function createAIGuide(settings, {db, privateInfo, log = () => {}, fetchI
       .run(randomUUID(), learnerId, settings.provider, settings.model, status, extra.inputTokens || 0, extra.outputTokens || 0, extra.latencyMs || 0, new Date().toISOString()); }
     catch (e) { log({level:'error', msg:'ai_usage_log_failed', detail: e.message}); }
   };
-  return async function guide({learnerId, message, companion, ageBand, missionTitle}) {
+  return async function guide({learnerId, message, companion, ageBand, missionTitle, signal}) {
+    if (signal?.aborted) return {ok:false, reason:'aborted'};
     const since = new Date(Date.now() - 86400000).toISOString();
     const used = db.prepare("SELECT count(*) AS n FROM ai_usage WHERE learner_id=? AND created_at>=? AND status IN ('OK','BLOCKED_OUTPUT','ERROR')").get(learnerId, since).n;
     if (used >= settings.dailyLimit) { usage(learnerId, 'LIMITED'); return {ok:false, reason:'limit'}; }
@@ -80,7 +81,10 @@ export function createAIGuide(settings, {db, privateInfo, log = () => {}, fetchI
     const request = buildAIRequest(settings, {system: systemPrompt({companion, ageBand, missionTitle}), message});
     const started = Date.now();
     try {
-      const response = await fetchImpl(request.url, {method:'POST', headers: request.headers, body: JSON.stringify(request.body), signal: AbortSignal.timeout(settings.timeoutMs)});
+      // Timeout OR guardian revocation (signal) cancels the provider request mid-flight.
+      const cancel = signal ? AbortSignal.any([AbortSignal.timeout(settings.timeoutMs), signal]) : AbortSignal.timeout(settings.timeoutMs);
+      const response = await fetchImpl(request.url, {method:'POST', headers: request.headers, body: JSON.stringify(request.body), signal: cancel});
+      if (signal?.aborted) { usage(learnerId, 'ERROR', {latencyMs: Date.now() - started}); return {ok:false, reason:'aborted'}; }
       if (!response.ok) { usage(learnerId, 'ERROR', {latencyMs: Date.now() - started}); log({level:'warn', msg:'ai_provider_error', provider: settings.provider, status: response.status}); return {ok:false, reason:'error'}; }
       const parsed = parseAIResponse(settings.provider, await response.json());
       const reply = String(parsed.text || '').trim().slice(0, settings.maxReplyChars);
@@ -90,6 +94,7 @@ export function createAIGuide(settings, {db, privateInfo, log = () => {}, fetchI
       return {ok:true, reply, model: settings.model};
     } catch (e) {
       usage(learnerId, 'ERROR', {latencyMs: Date.now() - started});
+      if (signal?.aborted) return {ok:false, reason:'aborted'};
       log({level:'warn', msg:'ai_provider_unreachable', provider: settings.provider, error: e?.name === 'TimeoutError' ? 'timeout' : 'network_error'});
       return {ok:false, reason:'error'};
     }
