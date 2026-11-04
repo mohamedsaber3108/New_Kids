@@ -36,11 +36,20 @@ after every meaningful change so work can resume without repeating discovery.
       - [x] FEATURE_BACKEND_MATRIX.md: every api() call mapped; ZERO missing endpoints
       - [x] Verified e2e journey (tests/journey.e2e.mjs) 18/18 steps incl. 2 authz guards
 - [~] Phase 2 — Core foundation / hardening IN PROGRESS:
-      - [x] Versioned SQLite migration framework (server/migrate.mjs) + tests (suite 37/37)
-      - [ ] Uniform input validation layer
-      - [ ] Structured JSON logging + request tracing polish
-      - [ ] Config/secrets module with startup validation + .env.example
-      - [ ] Expand negative-authorization test coverage
+      - [x] Versioned SQLite migration framework (server/migrate.mjs) + tests
+      - [x] Config module with fail-fast production validation (server/config.mjs) + example.env
+      - [x] Structured JSON request logging (no query/body/cookie), requestId per line
+      - [x] Graceful shutdown (SIGTERM/SIGINT closes server then SQLite)
+      - [x] Expired session/token cleanup (startup + hourly)
+      - [x] MODERATOR account provisioning; admin overview guardian-count bug fixed
+      - [x] Negative-authorization + boundary coverage: tests/comprehensive.e2e.mjs (50/50)
+      - [x] One-command gate `npm run verify` (suite 45/45, e2e 18/18 + 50/50, entrypoint 7/7, build)
+      - [ ] Centralize per-endpoint validation into shared helpers (validation itself already
+            exists per handler and is now test-covered; refactor is maintainability, not a gap)
+- [ ] Phase 3 — Provider adapters (email/AI/voice/payments) with honest disabled states
+- [ ] Phase 4 — Remaining frontend-driven gaps (see FEATURE_BACKEND_MATRIX "next")
+- [ ] Phase 5 — Deployment runbook + backup/restore drill script
+- [ ] Phase 6 — USAM Learning World reference review (only after core is complete)
 - [ ] Phase 3 — Core foundation (auth/permissions hardening, API contracts, observability)
 - [ ] Phase 4 — Learning engines completion
 - [ ] Phase 5 — Product experiences (learner/guardian/moderator/admin/public)

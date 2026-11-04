@@ -35,13 +35,26 @@ function safeGuidance(message,companionId,missionId){
   return {state:'SAFE',reply:prompts[guide.id]||prompts.azouz};
 }
 
-export function createApp({database=':memory:',publicOrigin=process.env.PUBLIC_ORIGIN||'',secureCookies=process.env.NODE_ENV==='production',adminEmail=process.env.ADMIN_EMAIL,adminPassword=process.env.ADMIN_PASSWORD,emailSender=null,guardianConsentRequired=process.env.REQUIRE_GUARDIAN_CONSENT==='true'}={}){
+export function createApp({database=':memory:',publicOrigin=process.env.PUBLIC_ORIGIN||'',secureCookies=process.env.NODE_ENV==='production',adminEmail=process.env.ADMIN_EMAIL,adminPassword=process.env.ADMIN_PASSWORD,moderatorEmail=process.env.MODERATOR_EMAIL,moderatorPassword=process.env.MODERATOR_PASSWORD,emailSender=null,guardianConsentRequired=process.env.REQUIRE_GUARDIAN_CONSENT==='true',logger=null}={}){
   const db=openDatabase(database);
   const requireEmailVerification=!!emailSender&&!!publicOrigin;
   db.prepare('INSERT OR IGNORE INTO feature_flags VALUES(?,?,?)').run('VOICE_PLAYBACK',1,now());
   if(adminEmail&&adminPassword&&!db.prepare('SELECT id FROM users WHERE role=? LIMIT 1').get('ADMIN')){
     if(!validPassword(adminPassword))throw new Error('ADMIN_PASSWORD must be at least 12 characters');
     db.prepare('INSERT INTO users(id,role,email,password_hash,display_name,guardian_approved_at,created_at) VALUES(?,?,?,?,?,?,?)').run(id(),'ADMIN',adminEmail.toLowerCase(),passwordHash(adminPassword),'USAM Admin',now(),now());
+  }
+  // Staff moderator provisioning (the /moderator desk needs a real MODERATOR account).
+  // Idempotent by email: never overwrites an existing account or its password.
+  if(moderatorEmail&&moderatorPassword&&!db.prepare('SELECT id FROM users WHERE email=?').get(moderatorEmail.toLowerCase())){
+    if(!validPassword(moderatorPassword))throw new Error('MODERATOR_PASSWORD must be at least 12 characters');
+    db.prepare('INSERT INTO users(id,role,email,password_hash,display_name,guardian_approved_at,created_at) VALUES(?,?,?,?,?,?,?)').run(id(),'MODERATOR',moderatorEmail.toLowerCase(),passwordHash(moderatorPassword),'USAM Moderator',now(),now());
+  }
+  // Removes expired sessions and one-time tokens. Returns counts; safe to run repeatedly.
+  function cleanupExpired(at=Date.now()){
+    const sessions=db.prepare('DELETE FROM sessions WHERE expires_at<=?').run(at).changes;
+    const resets=db.prepare('DELETE FROM password_resets WHERE expires_at<=?').run(at).changes;
+    const verifications=db.prepare('DELETE FROM email_verifications WHERE expires_at<=?').run(at).changes;
+    return {sessions,resets,verifications};
   }
   const rate=new Map();
   function limited(key,limit=12){const t=Date.now(),item=rate.get(key)||{count:0,until:t+60_000};if(item.until<t){item.count=0;item.until=t+60_000}item.count++;rate.set(key,item);return item.count>limit}
@@ -57,7 +70,8 @@ export function createApp({database=':memory:',publicOrigin=process.env.PUBLIC_O
   function timeLimitStatus(learnerId){const limits=timeLimits(learnerId),date=new Date(),today=date.toISOString().slice(0,10),monday=new Date(Date.UTC(date.getUTCFullYear(),date.getUTCMonth(),date.getUTCDate()-((date.getUTCDay()+6)%7))).toISOString().slice(0,10),daily=db.prepare('SELECT count(*) AS n FROM learner_usage_minutes WHERE learner_id=? AND day=?').get(learnerId,today).n,weekly=db.prepare('SELECT count(*) AS n FROM learner_usage_minutes WHERE learner_id=? AND day>=?').get(learnerId,monday).n,hour=Number(new Intl.DateTimeFormat('en-GB',{timeZone:'Africa/Cairo',hour:'2-digit',hour12:false}).format(date)),bedtimeBlocked=limits.configured&&(hour>=limits.bedtimeHour||hour<6);return {limits,dailyUsed:daily,weeklyUsed:weekly,dailyRemaining:Math.max(0,limits.dailyMinutes-daily),weeklyRemaining:Math.max(0,limits.weeklyMinutes-weekly),bedtimeBlocked,allowed:!limits.configured||daily<limits.dailyMinutes&&weekly<limits.weeklyMinutes&&!bedtimeBlocked,timeZone:'Africa/Cairo'}}
   function snapshot(learnerId){const learner=db.prepare('SELECT id,nickname,age_band,age_year FROM learners WHERE id=?').get(learnerId);const attempts=db.prepare('SELECT id,mission_id,score,total,created_at,next_review_at FROM attempts WHERE learner_id=? ORDER BY created_at DESC').all(learnerId).map(a=>({id:a.id,missionId:a.mission_id,score:a.score,total:a.total,at:a.created_at,nextReviewAt:a.next_review_at}));const completed={};for(const a of attempts)completed[a.missionId]=Math.max(completed[a.missionId]||0,a.score);const projects=db.prepare('SELECT id,title,body,world,created_at AS at,updated_at AS updatedAt FROM projects WHERE learner_id=? ORDER BY created_at DESC').all(learnerId).map(project=>({...project,notes:db.prepare('SELECT stage,body,updated_at AS updatedAt FROM project_notes WHERE project_id=?').all(project.id)}));const activities=db.prepare('SELECT id,kind,world,score,total,detail_json,created_at AS at FROM activities WHERE learner_id=? ORDER BY created_at DESC').all(learnerId).map(a=>({id:a.id,kind:a.kind,world:a.world,score:a.score,total:a.total,detail:JSON.parse(a.detail_json),at:a.at}));const preferencesRow=db.prepare('SELECT preferences_json FROM learner_preferences WHERE learner_id=?').get(learnerId);const preferences=preferencesRow?JSON.parse(preferencesRow.preferences_json):null;const placementRow=db.prepare('SELECT results_json,created_at FROM placements WHERE learner_id=?').get(learnerId);const placement=placementRow?{...JSON.parse(placementRow.results_json),at:placementRow.created_at}:null;const recommendation=recommendNext({attempts,completed,projects,placement});const mastery=Object.fromEntries(worlds.map(w=>[w.id,masteryStatus({attempts,projects},w.id)]));const evidence=[...attempts.map(a=>({id:a.id,missionId:a.missionId,score:a.score,total:a.total,at:a.at,kind:'quiz'})),...activities].sort((a,b)=>new Date(b.at)-new Date(a.at));const dailyGoal=db.prepare('SELECT target FROM daily_goals WHERE learner_id=?').get(learnerId)||{target:2};const gamification=gamificationSummary({completed,projects,activities,attempts});return {learner,completed,evidence,attempts,activities,projects,sessions:db.prepare("SELECT id,mission_id AS missionId,mode,status,answers_json AS answersJson,updated_at AS updatedAt FROM learning_sessions WHERE learner_id=? AND status='IN_PROGRESS' ORDER BY updated_at DESC LIMIT 20").all(learnerId).map(x=>({id:x.id,missionId:x.missionId,mode:x.mode,status:x.status,answers:JSON.parse(x.answersJson),updatedAt:x.updatedAt})),preferences,placement,controls:learnerControls(learnerId),timeLimits:timeLimits(learnerId),goal:db.prepare('SELECT weekly_missions AS weeklyMissions,focus_world AS focusWorld,note FROM guardian_goals WHERE learner_id=?').get(learnerId)||null,dailyGoal,dailyGoalProgress:dailyGoalProgress(dailyGoal,evidence),gamification,recommendation,mastery,xp:gamification.xp}}
   async function handler(req,res){
-    const requestId=id();res.setHeader('X-Request-Id',requestId);if(secureCookies)res.setHeader('Strict-Transport-Security','max-age=31536000; includeSubDomains');
+    const requestId=id();res.setHeader('X-Request-Id',requestId);
+    if(logger){const started=process.hrtime.bigint(),pathOnly=String(req.url||'').split('?')[0];res.on('finish',()=>{try{logger({level:res.statusCode>=500?'error':res.statusCode>=400?'warn':'info',msg:'request',requestId,method:req.method,path:pathOnly,status:res.statusCode,ms:Number((process.hrtime.bigint()-started)/1000000n)})}catch{}})}if(secureCookies)res.setHeader('Strict-Transport-Security','max-age=31536000; includeSubDomains');
     try{
       const url=new URL(req.url,'http://localhost'),p=url.pathname,method=req.method;
       if(p.startsWith('/api/')){
@@ -325,7 +339,7 @@ export function createApp({database=':memory:',publicOrigin=process.env.PUBLIC_O
         const report=p.match(/^\/api\/moderation\/reports\/([^/]+)$/);
         if(method==='GET'&&report){if(!requireRole(res,s,['MODERATOR','ADMIN']))return;const row=db.prepare('SELECT id,reason,status,resolution,created_at,resolved_at FROM reports WHERE id=?').get(report[1]);if(!row)return fail(res,404,'report_not_found');return json(res,200,{report:row,history:db.prepare("SELECT action,created_at FROM audit WHERE target_type='report' AND target_id=? ORDER BY created_at ASC").all(report[1]),reviewMode:'HUMAN_ONLY'})}
         if(method==='PATCH'&&report){if(!requireRole(res,s,['MODERATOR','ADMIN']))return;const b=await body(req);if(!['RESOLVED','REJECTED'].includes(b.status)||typeof b.resolution!=='string'||b.resolution.length<5||b.resolution.length>500)return fail(res,400,'invalid_resolution');const done=db.prepare('UPDATE reports SET status=?,resolution=?,resolved_at=? WHERE id=? AND status=?').run(b.status,b.resolution,now(),report[1],'OPEN');if(!done.changes)return fail(res,404,'report_not_found');audit(s.user_id,'REPORT_RESOLVED','report',report[1]);return json(res,200,{ok:true})}
-        if(method==='GET'&&p==='/api/admin/overview'){if(!requireRole(res,s,['ADMIN']))return;let count=t=>db.prepare('SELECT count(*) AS n FROM '+t).get().n;return json(res,200,{guardians:count('users')-1,learners:count('learners'),attempts:count('attempts'),projects:count('projects'),reportsOpen:db.prepare('SELECT count(*) AS n FROM reports WHERE status=?').get('OPEN').n})}
+        if(method==='GET'&&p==='/api/admin/overview'){if(!requireRole(res,s,['ADMIN']))return;let count=t=>db.prepare('SELECT count(*) AS n FROM '+t).get().n;return json(res,200,{guardians:db.prepare('SELECT count(*) AS n FROM users WHERE role=?').get('GUARDIAN').n,moderators:db.prepare('SELECT count(*) AS n FROM users WHERE role=?').get('MODERATOR').n,learners:count('learners'),attempts:count('attempts'),projects:count('projects'),reportsOpen:db.prepare('SELECT count(*) AS n FROM reports WHERE status=?').get('OPEN').n})}
         if(method==='GET'&&p==='/api/admin/guardians/pending'){if(!requireRole(res,s,['ADMIN']))return;return json(res,200,{guardians:db.prepare('SELECT id,email,display_name,created_at,email_verified_at FROM users WHERE role=? AND guardian_approved_at IS NULL').all('GUARDIAN')})}
         const approve=p.match(/^\/api\/admin\/guardians\/([^/]+)\/approve$/);
         if(method==='POST'&&approve){if(!requireRole(res,s,['ADMIN']))return;const b=await body(req);if(b.attestation!==true)return fail(res,400,'attestation_required');const guardian=db.prepare('SELECT id,email_verified_at FROM users WHERE id=? AND role=?').get(approve[1],'GUARDIAN');if(!guardian)return fail(res,404,'guardian_not_found');if(requireEmailVerification&&!guardian.email_verified_at)return fail(res,409,'email_verification_required');let result=db.prepare('UPDATE users SET guardian_approved_at=? WHERE id=? AND role=? AND guardian_approved_at IS NULL').run(now(),approve[1],'GUARDIAN');if(!result.changes)return fail(res,404,'guardian_not_found');audit(s.user_id,'GUARDIAN_APPROVED','user',approve[1]);return json(res,200,{approved:true})}
@@ -371,15 +385,24 @@ export function createApp({database=':memory:',publicOrigin=process.env.PUBLIC_O
     }catch(e){if(e.status)return fail(res,e.status,e.message);console.error('API error',requestId,e?.message);fail(res,500,'server_error')}
   }
   const server=http.createServer(handler);
-  return {server,db,close:()=>{server.close();db.close()}};
+  return {server,db,cleanupExpired,close:()=>{server.close();db.close()}};
 }
 
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
-  const database=process.env.DB_FILE||'/data/kids.db';
-  const webhook=process.env.EMAIL_WEBHOOK_URL||process.env.RESET_WEBHOOK_URL;
-  if(webhook&&new URL(webhook).protocol!=='https:')throw new Error('EMAIL_WEBHOOK_URL must use HTTPS');
-  const emailSender=webhook?async({to,resetUrl,verificationUrl})=>{const response=await fetch(webhook,{method:'POST',headers:{'Content-Type':'application/json',...(process.env.EMAIL_WEBHOOK_TOKEN||process.env.RESET_WEBHOOK_TOKEN?{Authorization:'Bearer '+(process.env.EMAIL_WEBHOOK_TOKEN||process.env.RESET_WEBHOOK_TOKEN)}:{})},body:JSON.stringify(resetUrl?{to,template:'password-reset',resetUrl}:{to,template:'email-verification',verificationUrl}),signal:AbortSignal.timeout(8000)});if(!response.ok)throw new Error('email_delivery_failed')}:null;
-  const app=createApp({database,emailSender});
-  const port=Number(process.env.PORT||3001);
-  app.server.listen(port,'0.0.0.0',()=>console.log('USAM Kids API listening on '+port));
+  const {loadConfig}=await import('./config.mjs');
+  const config=loadConfig(process.env);
+  // Structured JSON logs (one line per event). Never includes bodies, cookies, or tokens.
+  const log=entry=>process.stdout.write(JSON.stringify({time:new Date().toISOString(),service:'usam-kids-api',...entry})+'\n');
+  if(config.errors.length){for(const message of config.errors)log({level:'error',msg:'config_invalid',detail:message});process.exit(1)}
+  const emailSender=config.email?async({to,resetUrl,verificationUrl})=>{const response=await fetch(config.email.url,{method:'POST',headers:{'Content-Type':'application/json',...(config.email.token?{Authorization:'Bearer '+config.email.token}:{})},body:JSON.stringify(resetUrl?{to,template:'password-reset',resetUrl}:{to,template:'email-verification',verificationUrl}),signal:AbortSignal.timeout(8000)});if(!response.ok)throw new Error('email_delivery_failed')}:null;
+  const app=createApp({database:config.database,publicOrigin:config.publicOrigin,secureCookies:config.secureCookies,adminEmail:config.admin?.email,adminPassword:config.admin?.password,moderatorEmail:config.moderator?.email,moderatorPassword:config.moderator?.password,emailSender,guardianConsentRequired:config.guardianConsentRequired,logger:config.logRequests?log:null});
+  if(!config.email)log({level:'warn',msg:'email_delivery_disabled',detail:'EMAIL_WEBHOOK_URL not set; verification and password recovery return unavailable'});
+  // Hourly cleanup of expired sessions and one-time tokens (also once at startup).
+  const sweep=()=>{try{const removed=app.cleanupExpired();if(removed.sessions||removed.resets||removed.verifications)log({level:'info',msg:'expired_records_removed',...removed})}catch(e){log({level:'error',msg:'cleanup_failed',detail:e?.message})}};
+  sweep();const sweeper=setInterval(sweep,3600_000);sweeper.unref();
+  app.server.listen(config.port,'0.0.0.0',()=>log({level:'info',msg:'listening',port:config.port,production:config.production}));
+  // Graceful shutdown: stop accepting connections, then close SQLite so the WAL is checkpointed.
+  let stopping=false;
+  const shutdown=signal=>{if(stopping)return;stopping=true;log({level:'info',msg:'shutdown',signal});clearInterval(sweeper);const force=setTimeout(()=>process.exit(1),10_000);force.unref();app.server.close(()=>{try{app.db.close()}catch{}process.exit(0)})};
+  process.on('SIGTERM',()=>shutdown('SIGTERM'));process.on('SIGINT',()=>shutdown('SIGINT'));
 }
