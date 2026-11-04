@@ -120,3 +120,64 @@ test('privacy filter blocks Egyptian/Arabic-Indic/formatted phones and emails bu
    assert.equal((await post(ok)).status,201,'should allow: '+ok);
  }finally{await stop()}
 });
+
+async function mintSessionLearner(app){
+ const {createHash,randomBytes,randomUUID}=await import('node:crypto');
+ const at=new Date().toISOString(),gid=randomUUID(),lid=randomUUID(),token=randomBytes(32).toString('base64url');
+ app.db.prepare('INSERT INTO users(id,role,email,password_hash,display_name,guardian_approved_at,created_at) VALUES(?,?,?,?,?,?,?)').run(gid,'GUARDIAN',gid+'@example.test','x','Parent',at,at);
+ app.db.prepare('INSERT INTO learners(id,guardian_id,nickname,age_band,age_year,created_at) VALUES(?,?,?,?,?,?)').run(lid,gid,'Kid','10-12',10,at);
+ app.db.prepare('INSERT INTO sessions VALUES(?,?,?,?,?)').run(createHash('sha256').update(token).digest('hex'),gid,lid,Date.now()+3600_000,at);
+ return {learnerId:lid,cookie:'kids_session='+token};
+}
+
+test('concurrency: parallel "complete" taps on one session record exactly one attempt',async()=>{
+ const {app,call,stop}=await start({});
+ try{
+  const {cookie,learnerId}=await mintSessionLearner(app);
+  const sid=(await call('/api/learning-sessions',{method:'POST',cookie,body:{missionId:'coding-square',mode:'MISSION'}})).data.session.id;
+  for(let i=0;i<3;i++)await call('/api/learning-sessions/'+sid,{method:'PATCH',cookie,body:{choice:0}});
+  const results=await Promise.all(Array.from({length:8},()=>call('/api/learning-sessions/'+sid+'/complete',{method:'POST',cookie,body:{}})));
+  assert.equal(results.filter(r=>r.status===201).length,1,'exactly one completion creates the attempt');
+  assert.ok(results.every(r=>r.status===201||(r.status===200&&r.data.alreadyComplete)),JSON.stringify(results.map(r=>r.status)));
+  assert.equal(app.db.prepare('SELECT count(*) AS n FROM attempts WHERE learner_id=?').get(learnerId).n,1,'no duplicate attempt / reward');
+ }finally{await stop()}
+});
+
+test('concurrency: parallel answers to the same question cannot both be recorded',async()=>{
+ const {app,call,stop}=await start({});
+ try{
+  const {cookie}=await mintSessionLearner(app);
+  const sid=(await call('/api/learning-sessions',{method:'POST',cookie,body:{missionId:'coding-square',mode:'MISSION'}})).data.session.id;
+  const both=await Promise.all([0,1,2,0,1].map(choice=>call('/api/learning-sessions/'+sid,{method:'PATCH',cookie,body:{choice}})));
+  const saved=(await call('/api/learning-sessions/'+sid,{cookie})).data.session.answers;
+  assert.equal(saved.length,both.filter(r=>r.status===200).length,'answers stored == accepted writes (optimistic lock)');
+  assert.ok(saved.length<=3);
+ }finally{await stop()}
+});
+
+test('abuse: login and attempt rate limits trigger (429)',async()=>{
+ const {app,call,stop}=await start({});
+ try{
+  const logins=[];for(let i=0;i<12;i++)logins.push((await call('/api/auth/login',{method:'POST',body:{email:'nobody@example.test',password:'Wrong-Password-123'}})).status);
+  assert.ok(logins.slice(0,10).every(s=>s===401),JSON.stringify(logins));
+  assert.equal(logins[11],429,'login brute force is throttled');
+  const {cookie}=await mintSessionLearner(app);
+  const statuses=[];for(let i=0;i<42;i++)statuses.push((await call('/api/attempts',{method:'POST',cookie,body:{missionId:'coding-square',answers:[0,1,0]}})).status);
+  assert.ok(statuses.includes(429),'attempt flooding is throttled');
+  assert.equal(statuses.filter(s=>s===201).length,40,'exactly the per-minute allowance was accepted');
+ }finally{await stop()}
+});
+
+test('abuse: oversized and malformed bodies are rejected cleanly',async()=>{
+ const {base,stop}=await (async()=>{const s=await start({});return {...s,base:'http://127.0.0.1:'+s.app.server.address().port}})();
+ try{
+  const big=await fetch(base+'/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json',Origin:base},body:JSON.stringify({email:'a@b.co',password:'x'.repeat(20000)})});
+  assert.equal(big.status,413);
+  const bad=await fetch(base+'/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json',Origin:base},body:'{not json'});
+  assert.equal(bad.status,400);assert.equal((await bad.json()).error,'invalid_json');
+  const wrongType=await fetch(base+'/api/auth/login',{method:'POST',headers:{'Content-Type':'text/plain',Origin:base},body:'hi'});
+  assert.equal(wrongType.status,415);
+  const traversal=await fetch(base+'/..%2f..%2fserver%2fapp.mjs');
+  assert.notEqual(await traversal.text().then(t=>t.includes('createApp')),true,'path traversal does not leak server source');
+ }finally{await stop()}
+});

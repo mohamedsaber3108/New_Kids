@@ -3,3 +3,13 @@ dist
 .git
 .openai
 *.zip
+# Never send secrets or local databases into an image build context.
+.env
+.env.*
+data
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+coverage
+*.log

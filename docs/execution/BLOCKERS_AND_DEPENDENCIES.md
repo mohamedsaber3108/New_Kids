@@ -1,24 +1,24 @@
 # BLOCKERS_AND_DEPENDENCIES.md
 
-## RESOLVED — Project identity (correction directive, names are USAM-based)
-
-| Directive name | Role | Resolved location (verified) |
+## Project identity (resolved)
+| Name | Role | Location |
 |---|---|---|
-| **USAM_New** (= "KidsNew") | PRIMARY product; its uploaded frontend is the ONLY source of truth | `M:\Kids _New\app` — verified: React 18 JS SPA + Node `http` + SQLite; `npm ci` + `npm run build` succeed; 28 JSX modules in `src/`. This is the workspace I was given as the task root. |
-| **USAM Learning World** (`USAM Learning Worlds`) | REFERENCE ONLY, later phase (Stage/Phase: after core USAM_New is built & integrated) | `M:\USAM Learning Worlds` and/or `M:\USAM-main` (both = GitHub `mohamedsaber3108/USAM-Learning-Worlds`). NOT inspected for code reuse yet — reference phase not started. |
-| **USAM Kids** | EXCLUDED | Do not inspect/use. (Note: the USAM_New frontend brands itself "USAM Kids" internally, but per directive §4 the product name ≠ directory; `M:\Kids _New\app` is USAM_New, not the excluded project.) |
-| **USAM** / **USAM Main** | EXCLUDED | `M:\USAM`, `M:\USAM-main` region names — do not inspect/use. Other loose folders (`Old USAM`, `USammm`, `USAM-Master-Ecosystem`, `USAMKO`, `E-USAM`) are out of scope. |
+| USAM_New (= KidsNew) | PRIMARY product; frontend is the source of truth | `M:\Kids _New\app` |
+| USAM Learning World(s) | Reference only, after core completion — not yet analyzed | `M:\USAM Learning Worlds`, `M:\USAM-main` |
+| USAM Kids / USAM / USAM Main | Excluded — never inspected or used | — |
 
-### Verification performed for USAM_New = `M:\Kids _New\app`
-- It is the only app inside the given workspace `M:\Kids _New` (siblings: `extracted/` raw ZIP,
-  `Kids-*.zip` original, `Backend Prompt.md` which belongs to the unrelated English Website).
-- `npm ci` clean; `npm run build` → `dist/` (518 KB bundle) succeeds. Frontend intact.
-- Git baseline clean at the latest commit; migration framework + 37-test suite in place.
+## Needs your approval (frontend change)
+| Item | File | Change | Why | Impact |
+|---|---|---|---|---|
+| Companion switch not saved | `src/main.jsx` (CompanionCard, world guide button, "Ask Adam") | after `update({activeCompanion})`, also call a server endpoint to save the learner's chosen companion | today the choice resets on reload in backend mode (onboarding choice is saved; later switches are not) | invisible to the UI; one extra request. Backend endpoint can be added the moment you approve. |
+| Guardian live-AI opt-in toggle | guardian child Safety tab (`src/operations.jsx`) | a checkbox that sends `liveAiAllowed` to the existing `PATCH /api/guardian/children/:id/controls` | backend already supports it; without a UI, live AI stays off for every child (safe default) | only needed if you enable live AI |
 
-### Reference-phase guardrail
-USAM Learning World will be analyzed ONLY after USAM_New's core backend is implemented and
-integrated (directive Stage order). Until then it stays strictly read-only and untouched.
-
-## Active external blockers (do not stop other work)
-- Email/AI/payments/voice providers: no credentials — will build disabled adapters + document.
-- EC2/domain/TLS/secret store: cannot provision AWS — will prepare scripts/docs only.
+## Needs your accounts / decisions (integration code is built and tested)
+| Dependency | What is ready | What you provide |
+|---|---|---|
+| Email | postmark / sendgrid / webhook adapters, templates, retries, delivery log | provider account, verified sender domain, `EMAIL_PROVIDER` + `EMAIL_API_TOKEN` + `EMAIL_FROM` |
+| Live AI | openai / anthropic adapters with child-safety gates | provider contract (DPA), key, model, approval that live AI may be offered to children |
+| Payments | signed webhook, subscriptions, entitlements (FREE_ACCESS kept) | provider choice (Stripe does not onboard Egyptian merchants; e.g. Paymob/Fawry), plans/prices, mapping of that provider's webhook into the verified event format |
+| Voice | browser playback + guardian/platform switches | recording/speech scoring is not built: needs a provider and guardian recording consent |
+| EC2 / DNS / TLS / CloudWatch | Compose stack verified (34/34), runbook | AWS account, instance, domain, certificate, alarm recipient |
+| Legal | consent is versioned and enforced in code | approved privacy/terms/consent text for launch markets |

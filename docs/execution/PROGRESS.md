@@ -46,10 +46,16 @@ after every meaningful change so work can resume without repeating discovery.
       - [x] One-command gate `npm run verify` (suite 45/45, e2e 18/18 + 50/50, entrypoint 7/7, build)
       - [ ] Centralize per-endpoint validation into shared helpers (validation itself already
             exists per handler and is now test-covered; refactor is maintainability, not a gap)
-- [ ] Phase 3 — Provider adapters (email/AI/voice/payments) with honest disabled states
-- [ ] Phase 4 — Remaining frontend-driven gaps (see FEATURE_BACKEND_MATRIX "next")
-- [ ] Phase 5 — Deployment runbook + backup/restore drill script
-- [ ] Phase 6 — USAM Learning World reference review (only after core is complete)
+- [x] Phase 3 — Provider adapters: email (postmark/sendgrid/webhook), guardian-gated live AI
+      (openai/anthropic), signed payment webhooks + entitlements; admin integration status
+- [x] Phase 4 — Frontend-driven audit: 36 writes classified, 10 lab kinds parity-proven (457/457),
+      every guardian/admin/moderator call verified (75/75); privacy filter defect D7 fixed
+- [x] Phase 5 — Docker build+runtime verified (34/34), Nginx header/CSP defect D8 fixed,
+      `server/restore.mjs` + tests, DEPLOYMENT_RUNBOOK.md
+- [x] Concurrency/abuse tests (duplicate completion, racing answers, rate limits, body abuse)
+- [ ] Awaiting approval: 2 small frontend changes (BLOCKERS_AND_DEPENDENCIES.md)
+- [ ] Awaiting accounts: email/AI/payment providers, AWS, legal text
+- [ ] Phase 6 — USAM Learning World reference review (only after you confirm core is accepted)
 - [ ] Phase 3 — Core foundation (auth/permissions hardening, API contracts, observability)
 - [ ] Phase 4 — Learning engines completion
 - [ ] Phase 5 — Product experiences (learner/guardian/moderator/admin/public)
