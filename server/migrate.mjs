@@ -29,6 +29,54 @@ export const migrations = [
     // databases converge on the same migration state.
     up() { /* no-op: baseline is owned by server/db.mjs */ },
   },
+  {
+    version: 2,
+    name: 'provider_delivery_and_usage_logs',
+    // Additive only. email_deliveries stores a SHA-256 of the recipient, never the address,
+    // and never the verification/reset link. ai_usage records provider calls for cost and
+    // abuse control without storing the child's message text.
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS email_deliveries(
+          id TEXT PRIMARY KEY, template TEXT NOT NULL, recipient_hash TEXT NOT NULL,
+          provider TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('SENT','FAILED')),
+          attempts INTEGER NOT NULL, error TEXT, provider_message_id TEXT, created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS email_deliveries_created ON email_deliveries(created_at);
+        CREATE TABLE IF NOT EXISTS ai_usage(
+          id TEXT PRIMARY KEY, learner_id TEXT REFERENCES learners(id) ON DELETE CASCADE,
+          provider TEXT NOT NULL, model TEXT, status TEXT NOT NULL CHECK(status IN ('OK','BLOCKED_INPUT','BLOCKED_OUTPUT','ERROR','LIMITED')),
+          input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0,
+          latency_ms INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ai_usage_learner_day ON ai_usage(learner_id,created_at);
+      `);
+      // Guardian opt-in for live AI, default OFF. Guarded so re-runs are safe.
+      if (!db.prepare('PRAGMA table_info(learner_controls)').all().some(c => c.name === 'live_ai_allowed'))
+        db.exec('ALTER TABLE learner_controls ADD COLUMN live_ai_allowed INTEGER NOT NULL DEFAULT 0 CHECK(live_ai_allowed IN (0,1))');
+    },
+  },
+  {
+    version: 3,
+    name: 'subscriptions_and_payment_events',
+    // Provider-neutral. No card data is ever stored; only the provider's subscription reference.
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS subscriptions(
+          id TEXT PRIMARY KEY, guardian_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          provider TEXT NOT NULL, provider_ref TEXT NOT NULL, plan TEXT NOT NULL CHECK(plan IN ('FAMILY_MONTHLY','FAMILY_YEARLY')),
+          status TEXT NOT NULL CHECK(status IN ('ACTIVE','PAST_DUE','CANCELED','EXPIRED')),
+          current_period_end TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+          UNIQUE(provider, provider_ref)
+        );
+        CREATE INDEX IF NOT EXISTS subscriptions_guardian ON subscriptions(guardian_id,updated_at);
+        CREATE TABLE IF NOT EXISTS payment_events(
+          id TEXT PRIMARY KEY, provider TEXT NOT NULL, type TEXT NOT NULL,
+          outcome TEXT NOT NULL, received_at TEXT NOT NULL
+        );
+      `);
+    },
+  },
 ];
 
 function ensureMigrationsTable(db) {
