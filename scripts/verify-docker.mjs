@@ -72,6 +72,10 @@ try{
  const guardianAgain=(await call('/api/auth/login',{method:'POST',body:{email:'parent@verify.local',password:'Verify-Guardian-Password-123'}})).cookie;
  const controls=(await call('/api/guardian/children/'+child.data.id+'/controls',{cookie:guardianAgain})).data.controls;
  ok('live AI off by default and honestly unavailable',controls.liveAiAllowed===false&&controls.liveAiAvailable===false,JSON.stringify(controls));
+ // Approved Phase B: guardian insights served through the proxy; never to the child.
+ const ov=(await call('/api/guardian/children/'+child.data.id+'/overview',{cookie:guardianAgain})).data;
+ ok('guardian overview includes learning insights + weekly activity',!!ov.insights?.worlds?.coding&&ov.insights.weekly?.days?.length===7,JSON.stringify(ov.insights||{}).slice(0,200));
+ ok('child snapshot carries no guardian insights',(await call('/api/learners/'+child.data.id+'/snapshot',{cookie:learner})).data.insights===undefined);
  ok('learner cannot change guardian controls',(await call('/api/guardian/children/'+child.data.id+'/controls',{method:'PATCH',cookie:learner,body:{guidesEnabled:true,voiceEnabled:true,liveAiAllowed:true}})).status===403);
  const mod=await call('/api/auth/login',{method:'POST',body:{email:'mod@verify.local',password:'Verify-Moderator-Password-123'}});
  ok('moderator login + queue',mod.status===200&&(await call('/api/moderation/queue',{cookie:mod.cookie})).status===200);
