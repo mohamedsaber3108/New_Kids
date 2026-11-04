@@ -63,7 +63,11 @@ after every meaningful change so work can resume without repeating discovery.
       Deferred: G2 streak bonus (needs frontend XP alignment), C2 content (needs educator review).
       Gates: unit 86/86, journey 18/18, comprehensive 50/50, parity 457/457, roles 75/75,
       entrypoint 7/7, build OK, docker 38/38. No frontend files changed.
-- [ ] Roadmap Phase B (frontend approvals) and Phase C (business decisions) — awaiting decision
+- [x] Phase B (approved subset, f8e58f4): guardian learning insights (Progress tab), weekly tracked
+      minutes + subject balance (Activity tab). Frontend: src/guardian-details.jsx only, no CSS change.
+      Gates: unit 91/91, journey 18/18, comprehensive 50/50, parity 457/457, roles 75/75,
+      entrypoint 7/7, build OK, docker 40/40.
+- [ ] Remaining Phase B items (achievements, hint tracking, sorting, streak bonus) and Phase C — NOT approved, not started
 - [ ] Phase 3 — Core foundation (auth/permissions hardening, API contracts, observability)
 - [ ] Phase 4 — Learning engines completion
 - [ ] Phase 5 — Product experiences (learner/guardian/moderator/admin/public)
