@@ -154,3 +154,19 @@ parity 457/457, roles 75/75, entrypoint 7/7, build OK · `npm run verify:docker`
   this environment). The exact payloads the buttons send are tested against the real API, and
   the components are rendered to confirm unchanged learner markup.
 - Visual layout of the new guardian section on real devices not checked.
+
+## Real-browser verification (closes the "not visually verified" items)
+`npm run verify:browser` (scripts/verify-browser.mjs): headless Chrome driven through the
+DevTools Protocol with Node's built-in WebSocket (no new dependency), serving the production
+build from the real API server. Result: **45/45**.
+- Real clicks on all three Hint buttons (mission session, age challenge, coding challenge):
+  hint hidden before click, shown after, exactly one hint_events row per reveal; repeat clicks
+  and Reset-then-reveal add nothing.
+- Companion card click saves the choice on the server and it survives a reload.
+- Guardian Progress (learning insights) and Activity (weekly tracked minutes, subject balance,
+  hints) tabs in English and Arabic at 360 / 768 / 1280 px: content present, no horizontal
+  overflow, RTL direction in Arabic; screenshots in node_modules/.cache/browser-shots/.
+- Guardian Safety tab: Live AI checkbox off + disabled with the honest unavailable message.
+Observations (not defects): at 360 px the weekly day labels wrap to three lines (readable, no
+overflow); the existing mastery rule labels untouched subjects "Learning" while insights say
+"No evidence yet".
