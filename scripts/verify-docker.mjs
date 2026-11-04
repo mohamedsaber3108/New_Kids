@@ -75,6 +75,13 @@ try{
  // Approved Phase B: guardian insights served through the proxy; never to the child.
  const ov=(await call('/api/guardian/children/'+child.data.id+'/overview',{cookie:guardianAgain})).data;
  ok('guardian overview includes learning insights + weekly activity',!!ov.insights?.worlds?.coding&&ov.insights.weekly?.days?.length===7,JSON.stringify(ov.insights||{}).slice(0,200));
+ // Phase B: hint-usage tracking through the proxy.
+ const hintSid=(await call('/api/learning-sessions',{method:'POST',cookie:learner,body:{missionId:'coding-square',mode:'MISSION'}})).data.session.id;
+ const h1=await call('/api/hints',{method:'POST',cookie:learner,body:{source:'MISSION',sessionId:hintSid,step:0}});
+ const h2=await call('/api/hints',{method:'POST',cookie:learner,body:{source:'MISSION',sessionId:hintSid,step:0}});
+ ok('hint recorded once through proxy (retry is a duplicate)',h1.status===201&&h2.data?.duplicate===true,JSON.stringify([h1.data,h2.data]));
+ ok('guardian sees authoritative hint count',(await call('/api/guardian/children/'+child.data.id+'/overview',{cookie:guardianAgain})).data.insights?.hints?.last7Days===1);
+ ok('guardian session cannot record hints',(await call('/api/hints',{method:'POST',cookie:guardianAgain,body:{source:'MISSION',sessionId:hintSid,step:0}})).status===403);
  ok('child snapshot carries no guardian insights',(await call('/api/learners/'+child.data.id+'/snapshot',{cookie:learner})).data.insights===undefined);
  ok('learner cannot change guardian controls',(await call('/api/guardian/children/'+child.data.id+'/controls',{method:'PATCH',cookie:learner,body:{guidesEnabled:true,voiceEnabled:true,liveAiAllowed:true}})).status===403);
  const mod=await call('/api/auth/login',{method:'POST',body:{email:'mod@verify.local',password:'Verify-Moderator-Password-123'}});

@@ -99,3 +99,58 @@ after every meaningful change so work can resume without repeating discovery.
 - Payments merchant/provider + market — build entitlement seam, keep FREE_ACCESS.
 - EC2 host / domain / TLS / secrets store — prepare scripts & docs; cannot provision AWS.
 - Legal/consent copy approval — surface honestly; cannot self-certify.
+
+## Phase B — Hint-usage tracking (approved)
+
+### What was implemented
+- Tracks the three real hint reveals the learner uses (all static bilingual hints, no AI):
+  mission/practice session player (`session-player.jsx`), age challenges (`age-challenges.jsx`),
+  coding challenges (`coding-challenges.jsx`). Not tracked (not hint reveals): evidence review in
+  `workshop.jsx`, companion chat "hint" questions (already handled by `/api/assist`).
+- Recording happens at the moment the learner presses Hint and the hint is shown; repeat clicks
+  while it is visible send nothing; the server de-duplicates retries and parallel submissions.
+- Guardian Activity tab shows a compact neutral "Hints used" summary.
+
+### Database (migration v4 `hint_events`)
+`id, learner_id (FK learners ON DELETE CASCADE), source (MISSION|AGE_CHALLENGE|CODE_CHALLENGE),
+world, item_id, step, session_id, dedupe_key, created_at`; `UNIQUE(learner_id, dedupe_key)`;
+index `(learner_id, created_at)`. Idempotency keys: `MISSION:<session>:<question>`,
+`AGE_CHALLENGE:<id>:<UTC day>`, `CODE_CHALLENGE:<id>:<UTC day>`. No hint text, answers,
+prompts or messages are stored.
+
+### API contract
+- `POST /api/hints` (learner session only, rate limit 60/min, Origin-checked like all writes)
+  - body `{source:'MISSION', sessionId, step}` | `{source:'AGE_CHALLENGE'|'CODE_CHALLENGE', itemId}`
+  - 201 `{recorded:true,duplicate:false}` · 200 `{recorded:false,duplicate:true}`
+  - 400 `invalid_hint` (bad source/id/step, step ahead of progress, no hint) · 404 `session_not_found`
+    (unknown or another learner's session) · 401 anonymous · 403 non-learner · 429 rate limited
+  - world/mission are taken from server data; client-sent world/itemId for missions are ignored.
+- `GET /api/guardian/children/:id/overview` (and `/export`, `/api/parents/children/:id/dashboard|progress`)
+  gain additive `insights.hints`: `{last7Days, last28Days, byWorld[{worldId,count}],
+  bySource{MISSION,AGE_CHALLENGE,CODE_CHALLENGE}, topMissions[{missionId,count}] (max 5),
+  windows{shortDays:7,longDays:28,timezone:'UTC'}}` — whole UTC days ending today.
+  Never included in learner snapshots or any child-facing response.
+
+### Frontend integration points
+- `src/main.jsx`: `recordHint` helper (no-op unless backend + LEARNER; errors ignored so the
+  learner experience is unchanged) passed as a prop to the 3 hint components (4 render sites).
+- `src/session-player.jsx`, `src/age-challenges.jsx`, `src/coding-challenges.jsx`: accept
+  `recordHint`; the existing Hint button calls it before `setHint(true)` when not yet shown.
+- `src/guardian-details.jsx`: `HintInsight` in the Activity tab (existing classes, no CSS change).
+
+### Security and privacy
+Server-side learner-only recording; session ownership and progress validated; guardian
+overview linked-child check (other family 403, child 403, anonymous 401); metadata only;
+cascade deletion with the child; included in guardian export; does not touch consent or AI
+controls (test confirms liveAiAllowed stays false and companions stay rule-based).
+
+### Test results (all actually executed)
+hint-tracking 10/10 · `npm run verify`: unit 101/101, journey 18/18, comprehensive 50/50,
+parity 457/457, roles 75/75, entrypoint 7/7, build OK · `npm run verify:docker` 43/43
+(3 new hint checks through Nginx).
+
+### Limitations
+- The click on the Hint button is not exercised in a real browser (no DOM/browser runtime in
+  this environment). The exact payloads the buttons send are tested against the real API, and
+  the components are rendered to confirm unchanged learner markup.
+- Visual layout of the new guardian section on real devices not checked.

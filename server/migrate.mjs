@@ -77,6 +77,28 @@ export const migrations = [
       `);
     },
   },
+  {
+    version: 4,
+    name: 'hint_events',
+    // Hint-usage tracking (metadata only: no hint text, answers, or messages).
+    // dedupe_key makes recording idempotent per learner:
+    //   MISSION:<sessionId>:<questionIndex>   one count per question per learning session
+    //   AGE_CHALLENGE:<id>:<UTC day>          one count per challenge per day
+    //   CODE_CHALLENGE:<id>:<UTC day>         one count per challenge per day
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS hint_events(
+          id TEXT PRIMARY KEY,
+          learner_id TEXT NOT NULL REFERENCES learners(id) ON DELETE CASCADE,
+          source TEXT NOT NULL CHECK(source IN ('MISSION','AGE_CHALLENGE','CODE_CHALLENGE')),
+          world TEXT NOT NULL, item_id TEXT NOT NULL, step INTEGER,
+          session_id TEXT, dedupe_key TEXT NOT NULL, created_at TEXT NOT NULL,
+          UNIQUE(learner_id, dedupe_key)
+        );
+        CREATE INDEX IF NOT EXISTS hint_events_learner_time ON hint_events(learner_id, created_at);
+      `);
+    },
+  },
 ];
 
 function ensureMigrationsTable(db) {

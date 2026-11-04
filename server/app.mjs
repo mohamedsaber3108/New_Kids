@@ -7,7 +7,9 @@ import {openDatabase} from './db.mjs';
 import {createEmailSender} from './providers/email.mjs';
 import {createAIGuide} from './providers/ai.mjs';
 import {verifyPaymentWebhook,entitlementFor,invalidPaymentEvent} from './providers/payments.mjs';
-import {worldInsights,weeklyActivity} from './engines/insights.mjs';
+import {worldInsights,weeklyActivity,hintSummary} from './engines/insights.mjs';
+import {getAgeChallenge} from '../src/age-challenges.js';
+import {codingChallenges} from '../src/coding-content.js';
 import {retentionCohorts} from './analytics.mjs';
 import {missions,worlds,companions} from '../src/data.js';
 import {scorePlacement} from '../src/placement.js';
@@ -73,7 +75,9 @@ export function createApp({database=':memory:',publicOrigin=process.env.PUBLIC_O
     const worldOfMission=missionId=>missions.find(m=>m.id===missionId)?.world;
     const since=new Date(Date.now()-6*86400000).toISOString().slice(0,10);
     const usageByDay=db.prepare('SELECT day,count(*) AS minutes FROM learner_usage_minutes WHERE learner_id=? AND day>=? GROUP BY day').all(learnerId,since);
-    return {worlds:worldInsights({evidence:shot.evidence,projects:shot.projects,worlds,worldOfMission,authoritativeMastery:shot.mastery}),weekly:weeklyActivity({usageByDay,evidence:shot.evidence,worlds,worldOfMission}),generatedAt:now()};
+    const hintSince=new Date(Date.now()-27*86400000).toISOString().slice(0,10)+'T00:00:00.000Z';
+    const hintEvents=db.prepare('SELECT source,world,item_id AS itemId,created_at AS at FROM hint_events WHERE learner_id=? AND created_at>=?').all(learnerId,hintSince);
+    return {worlds:worldInsights({evidence:shot.evidence,projects:shot.projects,worlds,worldOfMission,authoritativeMastery:shot.mastery}),weekly:weeklyActivity({usageByDay,evidence:shot.evidence,worlds,worldOfMission}),hints:hintSummary({events:hintEvents,worlds}),generatedAt:now()};
   }
   // In-flight live-AI requests per learner, so a guardian revocation can cancel them mid-flight.
   const aiInflight=new Map();
@@ -233,6 +237,28 @@ export function createApp({database=':memory:',publicOrigin=process.env.PUBLIC_O
         const cosmeticAction=p.match(/^\/api\/gamification\/cosmetics\/([^/]+)\/(unlock|equip)$/);
         if(method==='POST'&&cosmeticAction){if(!requireRole(res,s,['LEARNER']))return;const catalog={"green-trail":5,"star-frame":10,"inventor-badge":15},cosmeticId=cosmeticAction[1],action=cosmeticAction[2];if(!(cosmeticId in catalog))return fail(res,404,'cosmetic_not_found');if(action==='unlock'){if(db.prepare('SELECT 1 FROM learner_cosmetics WHERE learner_id=? AND cosmetic_id=?').get(s.learner_id,cosmeticId))return json(res,200,{ok:true,cosmeticId,action,alreadyOwned:true});const earned=gamificationSummary(snapshot(s.learner_id)).coins,spent=db.prepare('SELECT spent_coins FROM gamification_wallets WHERE learner_id=?').get(s.learner_id)?.spent_coins||0;if(earned-spent<catalog[cosmeticId])return fail(res,409,'not_enough_coins');db.exec('BEGIN IMMEDIATE');try{db.prepare('INSERT INTO learner_cosmetics VALUES(?,?,0,?)').run(s.learner_id,cosmeticId,now());db.prepare('INSERT INTO gamification_wallets VALUES(?,?,?) ON CONFLICT(learner_id) DO UPDATE SET spent_coins=spent_coins+excluded.spent_coins,updated_at=excluded.updated_at').run(s.learner_id,catalog[cosmeticId],now());db.exec('COMMIT')}catch(e){db.exec('ROLLBACK');throw e}}else{if(!db.prepare('SELECT 1 FROM learner_cosmetics WHERE learner_id=? AND cosmetic_id=?').get(s.learner_id,cosmeticId))return fail(res,409,'cosmetic_locked');db.exec('BEGIN IMMEDIATE');try{db.prepare('UPDATE learner_cosmetics SET equipped=0 WHERE learner_id=?').run(s.learner_id);db.prepare('UPDATE learner_cosmetics SET equipped=1 WHERE learner_id=? AND cosmetic_id=?').run(s.learner_id,cosmeticId);db.exec('COMMIT')}catch(e){db.exec('ROLLBACK');throw e}}return json(res,200,{ok:true,cosmeticId,action})}
         if(method==='POST'&&p==='/api/gamification/streak-freeze/purchase'){if(!requireRole(res,s,['LEARNER']))return;const earned=gamificationSummary(snapshot(s.learner_id)).coins,spent=db.prepare('SELECT spent_coins FROM gamification_wallets WHERE learner_id=?').get(s.learner_id)?.spent_coins||0,current=db.prepare('SELECT available FROM streak_freezes WHERE learner_id=?').get(s.learner_id)?.available||0;if(current>=3)return fail(res,409,'freeze_capacity_reached');if(earned-spent<20)return fail(res,409,'not_enough_coins');db.exec('BEGIN IMMEDIATE');try{db.prepare('INSERT INTO streak_freezes VALUES(?,?,?) ON CONFLICT(learner_id) DO UPDATE SET available=available+1,updated_at=excluded.updated_at').run(s.learner_id,1,now());db.prepare('INSERT INTO gamification_wallets VALUES(?,?,?) ON CONFLICT(learner_id) DO UPDATE SET spent_coins=spent_coins+excluded.spent_coins,updated_at=excluded.updated_at').run(s.learner_id,20,now());db.exec('COMMIT')}catch(e){db.exec('ROLLBACK');throw e}return json(res,200,{available:current+1})}
+        // Hint-usage tracking: called when a learner reveals a hint. Metadata only. Identifiers are
+        // validated against server data owned by this learner; world/mission come from the server.
+        if(method==='POST'&&p==='/api/hints'){
+          if(!requireRole(res,s,['LEARNER']))return;if(limited('hint:'+s.learner_id,60))return fail(res,429,'rate_limited');
+          const b=await body(req),day=now().slice(0,10);let world,itemId,step=null,sessionId=null,key;
+          if(b.source==='MISSION'){
+            if(typeof b.sessionId!=='string'||!/^session-[a-f0-9-]+$/.test(b.sessionId)||!Number.isInteger(b.step))return fail(res,400,'invalid_hint');
+            const row=db.prepare('SELECT mission_id,answers_json FROM learning_sessions WHERE id=? AND learner_id=?').get(b.sessionId,s.learner_id);if(!row)return fail(res,404,'session_not_found');
+            const m=missions.find(x=>x.id===row.mission_id),answered=JSON.parse(row.answers_json).length;
+            // step may equal the current question, or the one just answered (hint request racing the answer save).
+            if(!m||b.step<0||b.step>=m.questions.length||b.step>answered||!m.questions[b.step].hintAr)return fail(res,400,'invalid_hint');
+            world=m.world;itemId=m.id;step=b.step;sessionId=b.sessionId;key='MISSION:'+sessionId+':'+step;
+          }else if(b.source==='AGE_CHALLENGE'){
+            const c=typeof b.itemId==='string'?getAgeChallenge(b.itemId):null;if(!c||!c.hintAr)return fail(res,400,'invalid_hint');
+            world=c.world;itemId=c.id;key='AGE_CHALLENGE:'+c.id+':'+day;
+          }else if(b.source==='CODE_CHALLENGE'){
+            const c=typeof b.itemId==='string'?codingChallenges.find(x=>x.id===b.itemId):null;if(!c||!c.hintAr)return fail(res,400,'invalid_hint');
+            world='coding';itemId=c.id;key='CODE_CHALLENGE:'+c.id+':'+day;
+          }else return fail(res,400,'invalid_hint');
+          const saved=db.prepare('INSERT OR IGNORE INTO hint_events(id,learner_id,source,world,item_id,step,session_id,dedupe_key,created_at) VALUES(?,?,?,?,?,?,?,?,?)').run(id(),s.learner_id,b.source,world,itemId,step,sessionId,key,now());
+          return json(res,saved.changes?201:200,{recorded:!!saved.changes,duplicate:!saved.changes});
+        }
         // Persist the companion a child picks after onboarding. Scoped to the session's own learner
         // (no id in the URL), so one child can never change or read another child's choice.
         if(method==='PUT'&&p==='/api/learner/companion'){

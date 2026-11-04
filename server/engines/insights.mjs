@@ -104,3 +104,24 @@ export function weeklyActivity({usageByDay, evidence, worlds, worldOfMission, no
     source: 'server-measured minutes (heartbeat) and recorded evidence',
   };
 }
+
+/**
+ * Hint-usage summary for guardians (Phase B). Counts hint_events rows (already de-duplicated at
+ * write time). Windows are whole UTC days ending today: last 7 days and last 28 days.
+ * Neutral by design: counts only, no score or judgement.
+ */
+export function hintSummary({events, worlds, now = Date.now()}) {
+  const start = days => Date.parse(utcDay(now - (days - 1) * DAY) + 'T00:00:00.000Z');
+  const in7 = events.filter(e => Date.parse(e.at) >= start(7)), in28 = events.filter(e => Date.parse(e.at) >= start(28));
+  const count = (list, key) => list.reduce((m, e) => (m[e[key]] = (m[e[key]] || 0) + 1, m), {});
+  const byWorld = count(in28, 'world'), bySource = count(in28, 'source');
+  const missions = count(in28.filter(e => e.source === 'MISSION'), 'itemId');
+  return {
+    last7Days: in7.length,
+    last28Days: in28.length,
+    byWorld: worlds.map(w => ({worldId: w.id, count: byWorld[w.id] || 0})),
+    bySource: {MISSION: bySource.MISSION || 0, AGE_CHALLENGE: bySource.AGE_CHALLENGE || 0, CODE_CHALLENGE: bySource.CODE_CHALLENGE || 0},
+    topMissions: Object.entries(missions).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 5).map(([missionId, n]) => ({missionId, count: n})),
+    windows: {shortDays: 7, longDays: 28, timezone: 'UTC'},
+  };
+}

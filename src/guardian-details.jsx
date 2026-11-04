@@ -24,6 +24,19 @@ export function SubjectInsight({insight,mastery,tr,lang}){
  </div>;
 }
 
+export function HintInsight({hints,tr,lang}){
+ if(!hints)return null;
+ const used=hints.byWorld.filter(w=>w.count>0);
+ return <><h3>{tr('التلميحات المستخدمة','Hints used')}</h3>
+  <div className="guardian-summary"><span>{num(hints.last7Days,lang)} {tr('في آخر ٧ أيام','in the last 7 days')}</span><span>{num(hints.last28Days,lang)} {tr('في آخر ٢٨ يومًا','in the last 28 days')}</span></div>
+  {hints.last28Days===0?<p>{tr('لم تُستخدم تلميحات في آخر ٢٨ يومًا.','No hints used in the last 28 days.')}</p>:<>
+   {used.map(w=>{const world=worlds.find(x=>x.id===w.worldId);return <div className="guardian-task-row" key={w.worldId}><span><b>{world?.icon} {world?tr(world.ar,world.en):w.worldId}</b></span><strong>{num(w.count,lang)}</strong></div>})}
+   <div className="guardian-task-row"><span><b>{tr('حسب النوع','By type')}</b><small>{tr('مهمات','Missions')} {num(hints.bySource.MISSION,lang)} · {tr('تحديات العمر','Age challenges')} {num(hints.bySource.AGE_CHALLENGE,lang)} · {tr('تحديات البرمجة','Coding challenges')} {num(hints.bySource.CODE_CHALLENGE,lang)}</small></span></div>
+   {hints.topMissions.map(t=>{const m=missions.find(x=>x.id===t.missionId);return <div className="guardian-task-row" key={t.missionId}><span><b>{m?tr(m.ar,m.en):t.missionId}</b><small>{tr('مهمة','Mission')}</small></span><strong>{num(t.count,lang)}</strong></div>})}
+  </>}
+  <p className="onboard-note">{tr('التلميحات جزء من التعلّم، وطلب المساعدة عادة جيدة. هذه الأرقام توضح أين اختار طفلك رؤية تلميح، وليست درجة ولا تعني أن طفلك يواجه صعوبة. تُحسب الأيام بتوقيت UTC.','Hints are part of learning, and asking for help is a healthy habit. These counts show where your child chose to see a hint; they are not a score and do not mean your child is struggling. Days are counted in UTC.')}</p></>;
+}
+
 export function WeeklyInsight({weekly,tr,lang}){
  if(!weekly)return null;
  const max=Math.max(30,...weekly.days.map(d=>d.minutes)),hasEvidence=weekly.worldBalance.some(w=>w.activities>0);
@@ -50,5 +63,5 @@ export function GuardianProjects({overview,tr,lang}){
 export function GuardianActivity({overview,tr,lang}){
  const records=[...overview.attempts.map(a=>({id:a.id,label:missions.find(m=>m.id===a.missionId),kind:'mission',score:a.score,total:a.total,at:a.at})),...overview.activities.map(a=>({id:a.id,label:a.kind,kind:'activity',score:a.score,total:a.total,at:a.at}))].sort((a,b)=>new Date(b.at)-new Date(a.at));
  const days=new Set(records.map(r=>r.at.slice(0,10))).size;
- return <div className="guardian-insights"><WeeklyInsight weekly={overview.insights?.weekly} tr={tr} lang={lang}/><div className="guardian-summary"><span>{records.length} {tr('نشاط محفوظ','saved activities')}</span><span>{days} {tr('أيام تعلم','learning days')}</span><span>{overview.sessions?.length||0} {tr('جلسات قابلة للاستئناف','open sessions')}</span></div><h3>{tr('سجل النشاط','Activity timeline')}</h3>{records.slice(0,60).map(r=><div className="guardian-task-row" key={r.kind+r.id}><span><b>{typeof r.label==='string'?r.label:tr(r.label?.ar||'',r.label?.en||'')}</b><small>{date(r.at,lang)}</small></span><strong>{r.score}/{r.total}</strong></div>)}{overview.sessions?.map(s=><div className="guardian-task-row" key={s.id}><span><b>{tr('جلسة لم تكتمل','Unfinished session')} · {s.missionId}</b><small>{date(s.updatedAt,lang)}</small></span><small>{s.answers.length} {tr('إجابات محفوظة','saved answers')}</small></div>)}{!records.length&&!overview.sessions?.length&&<p>{tr('لا يوجد نشاط بعد.','No activity yet.')}</p>}</div>
+ return <div className="guardian-insights"><WeeklyInsight weekly={overview.insights?.weekly} tr={tr} lang={lang}/><HintInsight hints={overview.insights?.hints} tr={tr} lang={lang}/><div className="guardian-summary"><span>{records.length} {tr('نشاط محفوظ','saved activities')}</span><span>{days} {tr('أيام تعلم','learning days')}</span><span>{overview.sessions?.length||0} {tr('جلسات قابلة للاستئناف','open sessions')}</span></div><h3>{tr('سجل النشاط','Activity timeline')}</h3>{records.slice(0,60).map(r=><div className="guardian-task-row" key={r.kind+r.id}><span><b>{typeof r.label==='string'?r.label:tr(r.label?.ar||'',r.label?.en||'')}</b><small>{date(r.at,lang)}</small></span><strong>{r.score}/{r.total}</strong></div>)}{overview.sessions?.map(s=><div className="guardian-task-row" key={s.id}><span><b>{tr('جلسة لم تكتمل','Unfinished session')} · {s.missionId}</b><small>{date(s.updatedAt,lang)}</small></span><small>{s.answers.length} {tr('إجابات محفوظة','saved answers')}</small></div>)}{!records.length&&!overview.sessions?.length&&<p>{tr('لا يوجد نشاط بعد.','No activity yet.')}</p>}</div>
 }
