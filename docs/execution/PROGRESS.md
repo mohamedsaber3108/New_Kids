@@ -56,7 +56,14 @@ after every meaningful change so work can resume without repeating discovery.
 - [x] Approved frontend changes implemented: companion persistence (`src/main.jsx`), guardian
       live-AI opt-in (`src/operations.jsx`). Verified: unit 69/69, verify all green, docker 38/38.
 - [ ] Awaiting accounts: email/AI/payment providers, AWS, legal text
-- [ ] Phase 6 — USAM Learning World reference review (only after you confirm core is accepted)
+- [x] Phase 6 — USAM Learning World reference review delivered (read-only; ADOPT/ADAPT/DO NOT ADOPT/NEEDS DECISION)
+- [x] Live AI in-flight revocation hardening (cf373dc)
+- [x] Roadmap Phase A, backend only (0e44907): guardian insights (evidence taxonomy, mastery
+      confidence, weekly minutes, world balance), AI coaching modes, fast/strong model routing.
+      Deferred: G2 streak bonus (needs frontend XP alignment), C2 content (needs educator review).
+      Gates: unit 86/86, journey 18/18, comprehensive 50/50, parity 457/457, roles 75/75,
+      entrypoint 7/7, build OK, docker 38/38. No frontend files changed.
+- [ ] Roadmap Phase B (frontend approvals) and Phase C (business decisions) — awaiting decision
 - [ ] Phase 3 — Core foundation (auth/permissions hardening, API contracts, observability)
 - [ ] Phase 4 — Learning engines completion
 - [ ] Phase 5 — Product experiences (learner/guardian/moderator/admin/public)
