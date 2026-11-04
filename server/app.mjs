@@ -25,7 +25,18 @@ function cookie(token,secure){return 'kids_session='+token+'; HttpOnly; Path=/; 
 async function body(req){if(!(req.headers['content-type']||'').startsWith('application/json'))throw Object.assign(new Error('json_required'),{status:415});let chunks=[],size=0;for await(const chunk of req){size+=chunk.length;if(size>16384)throw Object.assign(new Error('body_too_large'),{status:413});chunks.push(chunk)}try{return JSON.parse(Buffer.concat(chunks).toString('utf8'))}catch{throw Object.assign(new Error('invalid_json'),{status:400})}}
 const validNickname=s=>typeof s==='string'&&s.trim().length>=2&&s.trim().length<=28&&!/[<>\r\n]/.test(s);
 const validPassword=s=>typeof s==='string'&&s.length>=12&&s.length<=128;
-const privateInfo=/\b(?:\+?20\d{10,12}|\d{3}[- ]?\d{3}[- ]?\d{4}|[\w.+-]+@[\w.-]+\.[A-Za-z]{2,})\b/i;
+// Child-privacy filter for free text (projects, notes, milestones, reflections, goals, chat).
+// Detects emails and phone numbers in the formats children in the primary market actually
+// type: Egyptian mobiles (01012345678, 010-1234-5678, 010 1234 5678), Arabic-Indic digits
+// (٠١٠١٢٣٤٥٦٧٨ / ۰۱۰...), +country codes and (555) 123-4567 styles. Rule: after normalizing
+// digits and joining digit groups (2+ digits) split by space/dash/dot/brackets, any run of
+// 9+ digits is treated as a phone/ID number. Short numbers (scores, years, levels) pass.
+const privateInfo={test(value){
+  const text=String(value??'').replace(/[٠-٩]/g,d=>String(d.charCodeAt(0)-0x660)).replace(/[۰-۹]/g,d=>String(d.charCodeAt(0)-0x6F0));
+  if(/[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}/.test(text))return true;
+  let joined=text,prev;do{prev=joined;joined=joined.replace(/(\d{2,})[\s\-.()]+(?=\(?\d{2,})/g,'$1').replace(/\((\d{2,})\)/g,'$1')}while(joined!==prev);
+  return /\d{9,}/.test(joined);
+}};
 function safeGuidance(message,companionId,missionId){
   if(privateInfo.test(message)||/(password|كلمة السر|عنواني|رقم تليفوني)/i.test(message))return {state:'RESTRICTED',reply:'لا تشارك معلوماتك الشخصية هنا. اطلب مساعدة ولي أمرك إذا احتجت.'};
   const guide=companions.find(c=>c.id===companionId)||companions[0];

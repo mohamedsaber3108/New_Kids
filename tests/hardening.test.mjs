@@ -103,3 +103,20 @@ test('request logger records method/path/status/requestId without query strings'
   assert.equal(entries.find(e=>e.path==='/api/no-such-route').level,'warn');
  }finally{await stop()}
 });
+
+test('privacy filter blocks Egyptian/Arabic-Indic/formatted phones and emails but allows normal numbers',async()=>{
+ const {createHash,randomBytes,randomUUID}=await import('node:crypto');
+ const {app,call,stop}=await start({});
+ try{
+  const at=new Date().toISOString(),gid=randomUUID(),lid=randomUUID(),token=randomBytes(32).toString('base64url');
+  app.db.prepare('INSERT INTO users(id,role,email,password_hash,display_name,guardian_approved_at,created_at) VALUES(?,?,?,?,?,?,?)').run(gid,'GUARDIAN','pf@example.test','x','Parent',at,at);
+  app.db.prepare('INSERT INTO learners(id,guardian_id,nickname,age_band,age_year,created_at) VALUES(?,?,?,?,?,?)').run(lid,gid,'Kid','10-12',10,at);
+  app.db.prepare('INSERT INTO sessions VALUES(?,?,?,?,?)').run(createHash('sha256').update(token).digest('hex'),gid,lid,Date.now()+3600_000,at);
+  const cookie='kids_session='+token;
+  const post=body=>call('/api/projects',{method:'POST',cookie,body:{title:'My helper project',body,world:'coding'}});
+  for(const leak of ['call me on 01012345678 please today','my number is 010-1234-5678 ok','reach me at 010 1234 5678 anytime','رقمي ٠١٠١٢٣٤٥٦٧٨ للتواصل معي','phone +20 101 234 5678 is mine','dial (555) 123-4567 for help','email me at kid.name@example.co.uk'])
+   assert.equal((await post(leak)).status,400,'should block: '+leak);
+  for(const ok of ['In 2026 I scored 3 out of 5 on level 10.','My robot moves 12 steps then turns 90 degrees.','We planted 250 seeds in 4 rows of the garden.'])
+   assert.equal((await post(ok)).status,201,'should allow: '+ok);
+ }finally{await stop()}
+});
