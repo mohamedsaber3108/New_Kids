@@ -48,7 +48,7 @@ export function loadConfig(env = process.env) {
 
   // Live AI (optional, guardian opt-in per child is still required at runtime).
   const ai = env.AI_PROVIDER ? {
-    provider: env.AI_PROVIDER, key: env.AI_API_KEY || '', model: env.AI_MODEL || '', baseUrl: env.AI_BASE_URL || '',
+    provider: env.AI_PROVIDER, key: env.AI_API_KEY || '', model: env.AI_MODEL || '', modelFast: env.AI_MODEL_FAST || '', baseUrl: env.AI_BASE_URL || '',
     dailyLimit: Number(env.AI_DAILY_LIMIT_PER_LEARNER || 30), timeoutMs: Number(env.AI_TIMEOUT_MS || 8000),
     maxTokens: 200, maxReplyChars: 600,
   } : null;
