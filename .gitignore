@@ -12,3 +12,6 @@ data/
 .env
 .env.*
 coverage/
+# Host-side deploy state and local backups
+backups/
+.deploy/

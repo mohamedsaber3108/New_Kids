@@ -77,8 +77,19 @@ chmod 600 ./backup-$STAMP.sqlite
 aws s3 cp ./backup-$STAMP.sqlite s3://<your-backup-bucket>/usam/ --sse aws:kms    # [OWNER]
 docker compose exec -T usam-kids-api rm /data/backup-$STAMP.sqlite
 ```
-**Never copy the live `kids.db` file directly** (WAL mode). Schedule the block above with cron
-or a systemd timer (e.g. hourly), keep encrypted off-host copies, and set S3 lifecycle retention.
+**Never copy the live `kids.db` file directly** (WAL mode).
+
+The same steps are scripted in `deploy/backup.sh` (verified by `scripts/verify-docker.mjs`):
+the script writes to `./backups` (mode 700/600), keeps the newest `KEEP` copies (default 48),
+and uploads with SSE-KMS when `S3_URI` is set. Schedule it hourly with the bundled systemd units:
+```bash
+sudo cp deploy/usam-backup.service deploy/usam-backup.timer /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now usam-backup.timer
+systemctl list-timers usam-backup.timer      # next run
+journalctl -u usam-backup.service -n 20      # last result
+```
+Edit `WorkingDirectory`/`ExecStart` if the checkout is not `/opt/usam-new`. **[OWNER]** bucket,
+instance role (`s3:PutObject`, `kms:GenerateDataKey`) and an S3 lifecycle retention rule.
 
 ## 6. Restore (tested by tests/restore.test.mjs and scripts/verify-docker.mjs)
 ```bash
@@ -93,13 +104,20 @@ curl -fsS http://127.0.0.1:8080/api/health/ready
 before restoring, so a restore can itself be undone. Rehearse on a separate instance quarterly.
 
 ## 7. Upgrades and rollback
+CI (`.github/workflows/ci.yml`) runs `npm audit`, `npm run verify`, `npm run verify:ui` and
+`npm run verify:docker` on every push; deploy only commits that passed.
 ```bash
-# upgrade
-git pull                       # or copy the new release archive
-npm run verify                 # on a build machine
+deploy/deploy.sh <tag-or-commit>   # checks .env is 600, backs up, checks out, builds, starts,
+                                   # waits for /api/health/ready; auto-rolls back on failure
+deploy/deploy.sh rollback          # return to the release that was live before the last deploy
+```
+Manual equivalent:
+```bash
+git pull
 docker compose exec -T usam-kids-api node server/backup.mjs /data/pre-upgrade-$(date -u +%s).sqlite
 docker compose build && docker compose up -d
 ```
+Container logs rotate at 10 MB × 5 files per service (`docker-compose.yml`, `x-logging`).
 Database migrations (`server/migrate.mjs`) are additive, versioned, transactional and run
 automatically on API start; each is recorded in `schema_migrations`.
 Rollback: redeploy the previous release. Because migrations are additive, the previous code
@@ -113,6 +131,6 @@ closes SQLite cleanly (logged as `"msg":"shutdown"`).
 - [ ] Security group exposes only 443/80; SSH restricted or SSM only
 - [ ] TLS certificate valid; HSTS returned (API sets it when `NODE_ENV=production`)
 - [ ] Email provider configured and a real verification + reset email received **[OWNER]**
-- [ ] Scheduled encrypted off-host backups; one restore rehearsed on a separate host **[OWNER]**
+- [ ] `usam-backup.timer` enabled with `S3_URI`; one restore rehearsed on a separate host **[OWNER]**
 - [ ] CloudWatch logs + alarms routed to a named person **[OWNER]**
 - [ ] Legal/privacy text and guardian-consent process approved for launch markets **[OWNER]**

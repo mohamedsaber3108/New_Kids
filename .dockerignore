@@ -13,3 +13,5 @@ data
 *.sqlite
 coverage
 *.log
+backups
+.deploy

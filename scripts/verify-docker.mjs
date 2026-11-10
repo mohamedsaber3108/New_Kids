@@ -2,7 +2,7 @@
 // verifies the deployed stack through the Nginx reverse proxy exactly as EC2 would run it.
 // Cleans up only its own project + volume. Run: node scripts/verify-docker.mjs
 import {execFileSync,spawnSync} from 'node:child_process';
-import {mkdtempSync,writeFileSync,rmSync,readFileSync} from 'node:fs';
+import {mkdtempSync,writeFileSync,rmSync,readFileSync,existsSync,readdirSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {DatabaseSync} from 'node:sqlite';
@@ -99,6 +99,24 @@ try{
   ok('restored copy has all migrations recorded',restored.prepare('SELECT max(version) AS v FROM schema_migrations').get().v>=3);
   restored.close()}
  ok('backup refuses to overwrite an existing file',dc('exec','-T','usam-kids-api','node','server/backup.mjs','/data/backup-verify.sqlite').status===1);
+
+ // Host backup script (deploy/backup.sh, used by the systemd timer) against this isolated stack.
+ const bash=[process.env.BASH_PATH,'C:\\Program Files\\Git\\bin\\bash.exe','/bin/bash','/usr/bin/bash'].find(p=>p&&existsSync(p));
+ if(!bash)ok('deploy/backup.sh (bash not found; set BASH_PATH)',false);
+ else{
+  const hostDir=join(dir,'host-backups').replace(/\\/g,'/');
+  const env={...process.env,COMPOSE_PROJECT_NAME:project,COMPOSE_ENV_FILES:envFile,BACKUP_DIR:hostDir,KEEP:'1',MSYS_NO_PATHCONV:'1'};
+  const runScript=()=>spawnSync(bash,['deploy/backup.sh'],{encoding:'utf8',env,timeout:120000});
+  const first=runScript();await sleep(1200);const second=runScript();
+  ok('deploy/backup.sh succeeds twice',first.status===0&&second.status===0,first.stderr+second.stderr);
+  const files=existsSync(hostDir)?readdirSync(hostDir).filter(f=>/^backup-\d{8}T\d{6}Z\.sqlite$/.test(f)):[];
+  ok('deploy/backup.sh keeps only KEEP newest copies',files.length===1,files.join(','));
+  if(files.length){const db=new DatabaseSync(join(hostDir,files[0]),{readOnly:true});
+   ok('deploy/backup.sh copy passes integrity_check',db.prepare('PRAGMA integrity_check').get().integrity_check==='ok');db.close()}
+  const leftovers=dc('exec','-T','usam-kids-api','sh','-c','ls /data | grep "^backup-2" || true').stdout.trim();
+  ok('deploy/backup.sh leaves no files on the volume (incl. -wal/-shm)',leftovers==='',leftovers);
+  ok('backup is a single self-contained file (no -wal/-shm beside the in-container copy)',dc('exec','-T','usam-kids-api','sh','-c','ls /data/backup-verify.sqlite-wal /data/backup-verify.sqlite-shm 2>/dev/null | wc -l').stdout.trim()==='0');
+ }
 
  // Restart persistence + graceful shutdown.
  const restart=dc('restart','usam-kids-api');

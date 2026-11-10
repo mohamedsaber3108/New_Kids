@@ -12,9 +12,13 @@ if(!destination||source===destination||!existsSync(source)||existsSync(destinati
   const db=new DatabaseSync(source,{readOnly:true});
   try{
     await backup(db,destination);
-    const copy=new DatabaseSync(destination,{readOnly:true});
-    try{if(copy.prepare('PRAGMA integrity_check').get().integrity_check!=='ok')throw new Error('Backup integrity check failed')}
-    finally{copy.close()}
+    // The copy inherits WAL mode from the live database; switch it to a rollback journal so the
+    // backup is one self-contained file with no -wal/-shm sidecars (db.mjs re-enables WAL on restore).
+    const copy=new DatabaseSync(destination);
+    try{
+      copy.exec('PRAGMA journal_mode=DELETE');
+      if(copy.prepare('PRAGMA integrity_check').get().integrity_check!=='ok')throw new Error('Backup integrity check failed');
+    }finally{copy.close()}
     console.log('Verified SQLite backup:',destination);
   }finally{db.close()}
 }

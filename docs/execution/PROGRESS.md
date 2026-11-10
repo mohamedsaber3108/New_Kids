@@ -209,3 +209,27 @@ Browser-only behaviour remaining in backend mode is by design: theme, language, 
 search and notifications are computed in the browser from the server snapshot (authoritative data).
 External services remain disabled honestly until credentials exist (email, live AI, payments,
 voice scoring); AWS/DNS/TLS and legal approval are owner actions.
+
+## Deploy-readiness pass
+- Dependencies: Vite 5.4.21 → **6.4.6** (pinned) and esbuild **0.25.12** pinned as a devDependency
+  (tests import it). `npm audit`: **0 vulnerabilities** (was 1 high in vite, 1 moderate in esbuild; both
+  affected the dev server only). Vite 8 was not adopted (too large a jump for this release).
+- `package.json` `engines.node >=24` (matches `node:24-alpine` images and `node:sqlite` needs).
+- `vite.config.js`: `react` and `icons` vendor chunks split from app code (long-lived browser cache);
+  the >500 KB chunk warning is gone (largest chunk 421 KB / 127 KB gzip).
+- `docker-compose.yml`: json-file log rotation, 10 MB × 5 per service.
+- `deploy/backup.sh` + `deploy/usam-backup.{service,timer}`: hourly verified backups with local
+  retention and optional SSE-KMS S3 upload. Exercised against the real stack by `verify-docker`.
+- `deploy/deploy.sh <ref>|rollback`: .env permission check, pre-deploy backup, build, start,
+  readiness check, automatic rollback to the previous release on failure. Syntax-checked
+  (`bash -n`); **not executed against a real EC2 host** (none available).
+- `.github/workflows/ci.yml`: audit + verify + verify:ui + verify:docker on push/PR.
+  **Not run on GitHub yet** (no remote configured).
+- `.gitattributes` forces LF on shell scripts, systemd units, Nginx config and Dockerfiles.
+- **D11 (fixed)**: `server/backup.mjs` opened the WAL-mode copy read-only for `integrity_check`, which
+  left `-wal`/`-shm` sidecar files beside every backup (found by the new `backup.sh` volume check).
+  The copy is now switched to `journal_mode=DELETE`, so each backup is a single self-contained file.
+### Gate results (deploy-readiness pass, all executed on Vite 6.4.6)
+npm audit 0 vulnerabilities · unit 102/102 · journey 18/18 · comprehensive 50/50 · parity 457/457 ·
+roles 75/75 · entrypoint 7/7 · build OK (no chunk warning) · browser 45/45 · routes 338/338 ·
+forms 15/15 · docker 48/48 (adds 5 `deploy/backup.sh` checks).

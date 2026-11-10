@@ -1,0 +1,13 @@
+# Install: copy to /etc/systemd/system/, set WorkingDirectory to the release directory,
+# then: systemctl daemon-reload && systemctl enable --now usam-backup.timer
+[Unit]
+Description=USAM_New SQLite backup
+Wants=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/usam-new
+# Optional off-host copy (needs the AWS CLI and an instance role with s3:PutObject + kms:GenerateDataKey).
+# Environment=S3_URI=s3://<your-backup-bucket>/usam/
+ExecStart=/opt/usam-new/deploy/backup.sh
