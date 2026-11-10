@@ -157,3 +157,16 @@ test('end to end: live AI request carries the coaching mode and the routed model
   assert.deepEqual(t.app.db.prepare('SELECT model FROM ai_usage ORDER BY created_at').all().map(r=>r.model),['fast-model','strong-model']);
  }finally{await t.stop()}
 });
+
+test('rewards contract: /gamification/progression includes the server streak the Rewards page reads',async()=>{
+ const t=await start();
+ try{
+  const f=t.mint();
+  const before=(await t.call('/api/gamification/progression',{cookie:f.learner})).data;
+  assert.equal(before.streak,0,'no activity -> streak 0');
+  await t.call('/api/attempts',{method:'POST',cookie:f.learner,body:{missionId:'coding-square',answers:[0,1,0]}});
+  const after=(await t.call('/api/gamification/progression',{cookie:f.learner})).data;
+  assert.equal(after.streak,1,'activity today -> streak 1');
+  for(const k of ['xp','level','nextLevelXp','coins','streak'])assert.equal(typeof after[k],'number',k);
+ }finally{await t.stop()}
+});

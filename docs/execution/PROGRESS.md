@@ -170,3 +170,42 @@ build from the real API server. Result: **45/45**.
 Observations (not defects): at 360 px the weekly day labels wrap to three lines (readable, no
 overflow); the existing mastery rule labels untouched subjects "Learning" while insights say
 "No evidence yet".
+
+## Full frontend ↔ backend integration sweep (autonomous completion pass)
+
+### Gaps found and fixed
+| # | Gap (found by inspecting what the frontend actually reads) | Fix |
+|---|---|---|
+| I1 | Rewards page reads `streak` from `GET /api/gamification/progression`, which never returned it → streak always 0 with the server | progression now returns `streak` (server engine value); regression test in tests/phase-a.test.mjs |
+| I2 | Guardian overview "Suggested next step" printed a raw mission id (e.g. `english-evidence`) | `src/operations.jsx` shows the mission title (or subject name) in AR/EN |
+| I3 | Weekly chart day labels wrapped to 3 lines on 360 px phones | `src/guardian-details.jsx` label = weekday + day |
+
+### Whole-product verification in real Chrome
+- `scripts/verify-routes.mjs` (`npm run verify:routes`): visits EVERY frontend route for every role
+  (anonymous 26, learner 104, guardian 13, admin 31, moderator 5) in English and Arabic with rich data
+  seeded through the real API, and fails on any failing `/api` request, JS exception, console error,
+  `undefined`/`NaN`/`[object Object]`, not-found screen, or redirect to login. Detector self-test:
+  controls (unknown mission, unknown project, unknown evidence → API 404) must be flagged.
+  Result: **338 route visits, 338 clean**, controls flagged, both content expectations pass
+  (rewards streak shown; guardian next step readable).
+- `scripts/verify-forms.mjs` (`npm run verify:forms`): types into the real inputs and clicks the
+  real buttons; verifies the database. Result **15/15**: full mission run (3 questions → one attempt
+  with full marks, session COMPLETE), project create (+ privacy filter blocks a phone number via the
+  form), guardian "Add a child", guides toggle (then /api/assist 403 for the child), time limits
+  45/200/20, moderator resolves a report (status + reason + audit).
+- `scripts/verify-browser.mjs` 45/45 (hint clicks, companion persistence, responsive AR/EN).
+- `npm run verify:ui` runs all three.
+
+### Gate results (this pass, all executed)
+unit 102/102 · journey 18/18 · comprehensive 50/50 · parity 457/457 · roles 75/75 · entrypoint 7/7 ·
+build OK · browser 45/45 · routes 338/338 · forms 15/15 · docker 43/43.
+Note: the first Docker run failed because Docker Desktop had stopped on this machine; after starting
+it, the Docker gate passed 43/43.
+
+### Backend completeness statement (evidence-based)
+Every `api()` call in the frontend has a server handler; every route renders against the real API
+for its role with no failing request or broken value; every major form persists through the UI.
+Browser-only behaviour remaining in backend mode is by design: theme, language, demo-data delete;
+search and notifications are computed in the browser from the server snapshot (authoritative data).
+External services remain disabled honestly until credentials exist (email, live AI, payments,
+voice scoring); AWS/DNS/TLS and legal approval are owner actions.
