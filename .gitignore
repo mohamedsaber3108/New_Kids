@@ -15,3 +15,6 @@ coverage/
 # Host-side deploy state and local backups
 backups/
 .deploy/
+# Hosting-tool leftovers from the original archive (not part of the product)
+.openai/
+.openai-hosting-temp
