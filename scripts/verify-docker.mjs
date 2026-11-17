@@ -39,6 +39,14 @@ try{
  const assetRes=asset?await fetch(web+asset):null;
  ok('hashed assets cached immutable',!!assetRes&&assetRes.status===200&&/immutable/.test(assetRes.headers.get('cache-control')||''),assetRes?.headers.get('cache-control'));
  ok('hashed assets carry security headers',!!assetRes&&securityHeaders(assetRes.headers));
+ const gz=asset&&await fetch(web+asset,{headers:{'Accept-Encoding':'gzip'}});
+ // Per-IP limits through the real proxy chain: one client exhausting its login limit must not lock out another.
+ const tryLogin=xff=>fetch(web+'/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json',Origin:origin,'X-Forwarded-For':xff},body:JSON.stringify({email:'ratelimit@verify.local',password:'Wrong-Password-123'})}).then(r=>r.status);
+ for(let i=0;i<10;i++)await tryLogin('203.0.113.50');
+ ok('proxy: same client limited after 10 logins',await tryLogin('203.0.113.50')===429);
+ ok('proxy: a different client is NOT limited (real client IP reaches the API)',await tryLogin('198.51.100.60')===401);
+ ok('proxy: spoofed private X-Forwarded-For prefix does not escape the limit',await tryLogin('10.9.9.9, 203.0.113.50')===429);
+ ok('JavaScript served gzip-compressed with Vary',!!gz&&gz.headers.get('content-encoding')==='gzip'&&/Accept-Encoding/i.test(gz.headers.get('vary')||''),gz&&gz.headers.get('content-encoding'));
  ok('API port not published on the host',spawnSync('docker',['port',`${project}-usam-kids-api-1`],{encoding:'utf8'}).stdout.trim()==='');
  const uid=dc('exec','-T','usam-kids-api','id','-u').stdout.trim();
  ok('API container runs as non-root',uid!==''&&uid!=='0','uid='+uid);

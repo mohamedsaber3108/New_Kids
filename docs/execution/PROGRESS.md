@@ -233,3 +233,32 @@ voice scoring); AWS/DNS/TLS and legal approval are owner actions.
 npm audit 0 vulnerabilities · unit 102/102 · journey 18/18 · comprehensive 50/50 · parity 457/457 ·
 roles 75/75 · entrypoint 7/7 · build OK (no chunk warning) · browser 45/45 · routes 338/338 ·
 forms 15/15 · docker 48/48 (adds 5 `deploy/backup.sh` checks).
+
+## Final production-readiness pass
+Defects found and fixed (D13/D14 are covered by the existing auth suites plus the load test, not a
+dedicated unit test):
+- **D12 (high) shared rate limits behind the proxy**: per-IP limits (login 10/min, register 5,
+  recovery 3, reset 8, verify 10, payment webhook 120) keyed on the socket address, which behind Nginx
+  is the proxy for every user, so 11 logins site-wide per minute locked everyone out. Fix: container
+  Nginx `realip` (trusts only loopback/private hops, `real_ip_recursive`), host proxy sends
+  `X-Forwarded-For`, API uses `X-Real-IP` only with `TRUST_PROXY=true` (Compose) and validates it.
+  Tests: `tests/client-ip.test.mjs` (3) and 3 `verify-docker` checks through the real proxy chain.
+- **D13 (high) login burst blocked the server**: password hashing used `scryptSync` on the request
+  path. Now async scrypt (thread pool) for login, register, change and reset; hashing happens before
+  any `BEGIN` so no transaction spans an `await`. Register re-checks the email after hashing.
+- **D14 (medium) account enumeration by timing**: unknown emails skipped the hash; they now hash
+  against a dummy value.
+- **D15 (high) silent demo fallback in production**: if `/api/health` failed at page load (deploy
+  restart, outage) the production app switched to the browser-only demo, so a child's work looked
+  saved but stayed in localStorage. Production builds now retry, show a "short break" notice (existing
+  empty-state style) and reconnect automatically; demo remains for dev or `VITE_DEMO_MODE=true` builds.
+  5 new real-browser checks (outage server returning Nginx-style 502).
+- **D16 (medium) no compression**: Nginx served JS/CSS uncompressed (421 KB app script, 127 KB gzip).
+  gzip enabled; `verify-docker` asserts `Content-Encoding: gzip` + `Vary`.
+- Rate-limit map is pruned when large (unbounded growth per unique IP).
+Capacity: `scripts/load-test.mjs` (`npm run test:load`), results in DEPLOYMENT_RUNBOOK.md section 1.
+GitHub: the repository has no remote; the target repository was not identified (see final report).
+### Gate results (final production-readiness pass, all executed)
+npm audit 0 vulnerabilities · unit 105/105 · journey 18/18 · comprehensive 50/50 · parity 457/457 ·
+roles 75/75 · entrypoint 7/7 · build OK · browser 50/50 · routes 338/338 · forms 15/15 ·
+docker 52/52 · load PASS (893 req/s, p95 86 ms, 0 errors; workstation hardware).

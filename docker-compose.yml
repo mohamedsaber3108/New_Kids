@@ -50,6 +50,8 @@ services:
       PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-}
       PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:-}
       REQUIRE_GUARDIAN_CONSENT: ${REQUIRE_GUARDIAN_CONSENT:-true}
+      # The API is reachable only through usam-kids-web (no host port), so its X-Real-IP is trusted.
+      TRUST_PROXY: "true"
     volumes:
       - kids-data:/data
     read_only: true

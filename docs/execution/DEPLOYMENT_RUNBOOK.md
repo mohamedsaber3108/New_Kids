@@ -29,6 +29,15 @@ Both must end with 0 failures before you deploy.
 - Install Docker Engine + Compose plugin; enable the docker service.
 - DNS: A/AAAA record for `kids.usamif.com` → the instance's Elastic IP.
 - TLS: certbot (or ACM + ALB). Example host vhost: `deploy/ec2-reverse-proxy.example.conf`.
+  The host proxy **must** send `X-Forwarded-For $proxy_add_x_forwarded_for` (the example does; an ALB
+  does by default). The app container resolves the real client IP from it for per-IP rate limits;
+  without it every visitor shares one login/registration limit.
+- Sizing: one process, SQLite. Measured with `npm run test:load` (60 learners, 50 concurrent, file DB
+  in WAL mode): ~890 req/s, p95 86 ms, 0 errors; 40 simultaneous logins in 0.56 s while health checks
+  stayed at p95 37 ms. Those numbers come from an i9-12900H workstation, not EC2: a t3.small
+  (2 vCPU burstable, 2 GB) will be several times slower. Recommended start: t3.small + 20 GB gp3,
+  then run `npm run test:load` on the instance itself before launch and size up if p95 > 300 ms.
+  Scaling past one host would need a Postgres migration; that is not needed at launch size.
 
 ## 2. Secrets
 Create `.env` beside `docker-compose.yml` from `deploy/example.env`, then `chmod 600 .env`.

@@ -1,5 +1,5 @@
 import http from 'node:http';
-import {randomBytes,randomUUID,scryptSync,timingSafeEqual,createHash} from 'node:crypto';
+import {randomBytes,randomUUID,scrypt,scryptSync,timingSafeEqual,createHash} from 'node:crypto';
 import {readFile,stat} from 'node:fs/promises';
 import {resolve,join,extname,sep} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -23,6 +23,12 @@ const id=()=>randomUUID(),now=()=>new Date().toISOString();
 const hash=t=>createHash('sha256').update(t).digest('hex');
 function passwordHash(p){const salt=randomBytes(16).toString('hex');return salt+':'+scryptSync(p,salt,64).toString('hex')}
 function passwordMatches(p,h){try{const [salt,hex]=h.split(':');const expected=Buffer.from(hex,'hex');return expected.length===64&&timingSafeEqual(expected,scryptSync(p,salt,64))}catch{return false}}
+// Request paths use async scrypt (libuv thread pool) so a burst of logins does not block every other request.
+const scryptAsync=(p,salt)=>new Promise((resolve,reject)=>scrypt(p,salt,64,(e,key)=>e?reject(e):resolve(key)));
+async function passwordHashAsync(p){const salt=randomBytes(16).toString('hex');return salt+':'+(await scryptAsync(p,salt)).toString('hex')}
+async function passwordMatchesAsync(p,h){try{const [salt,hex]=h.split(':');const expected=Buffer.from(hex,'hex');return expected.length===64&&timingSafeEqual(expected,await scryptAsync(p,salt))}catch{return false}}
+// Unknown emails still pay for one hash, so login timing does not reveal which accounts exist.
+const DUMMY_HASH=passwordHash(randomBytes(12).toString('hex'));
 const securityHeaders={'X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'strict-origin-when-cross-origin','Permissions-Policy':'camera=(), microphone=(), geolocation=(), payment=(), usb=()','Cross-Origin-Resource-Policy':'same-origin','Content-Security-Policy':"default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'"};
 function json(res,code,value,headers={}){res.writeHead(code,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...securityHeaders,...headers});res.end(JSON.stringify(value))}
 function fail(res,code,error){json(res,code,{error})}
@@ -52,7 +58,7 @@ function safeGuidance(message,companionId,missionId){
   return {state:'SAFE',reply:prompts[guide.id]||prompts.azouz};
 }
 
-export function createApp({database=':memory:',publicOrigin=process.env.PUBLIC_ORIGIN||'',secureCookies=process.env.NODE_ENV==='production',adminEmail=process.env.ADMIN_EMAIL,adminPassword=process.env.ADMIN_PASSWORD,moderatorEmail=process.env.MODERATOR_EMAIL,moderatorPassword=process.env.MODERATOR_PASSWORD,emailSender=null,guardianConsentRequired=process.env.REQUIRE_GUARDIAN_CONSENT==='true',logger=null,aiGuide=null,emailSettings=null,aiSettings=null,paymentSettings=null,fetchImpl=fetch}={}){
+export function createApp({database=':memory:',trustProxy=process.env.TRUST_PROXY==='true',publicOrigin=process.env.PUBLIC_ORIGIN||'',secureCookies=process.env.NODE_ENV==='production',adminEmail=process.env.ADMIN_EMAIL,adminPassword=process.env.ADMIN_PASSWORD,moderatorEmail=process.env.MODERATOR_EMAIL,moderatorPassword=process.env.MODERATOR_PASSWORD,emailSender=null,guardianConsentRequired=process.env.REQUIRE_GUARDIAN_CONSENT==='true',logger=null,aiGuide=null,emailSettings=null,aiSettings=null,paymentSettings=null,fetchImpl=fetch}={}){
   const db=openDatabase(database);
   const providerLog=logger||(()=>{});
   // Provider adapters are built here because they log deliveries/usage to this database.
@@ -90,7 +96,12 @@ export function createApp({database=':memory:',publicOrigin=process.env.PUBLIC_O
     return {sessions,resets,verifications};
   }
   const rate=new Map();
-  function limited(key,limit=12){const t=Date.now(),item=rate.get(key)||{count:0,until:t+60_000};if(item.until<t){item.count=0;item.until=t+60_000}item.count++;rate.set(key,item);return item.count>limit}
+  // Behind the bundled Nginx every socket comes from the proxy, so per-IP limits would be shared by
+  // all users. With TRUST_PROXY=true (set in docker-compose; the API has no public port) the client
+  // IP is taken from X-Real-IP, which the web container derives via its realip module.
+  const ipPattern=/^[0-9a-fA-F:.]{2,45}$/;
+  function clientIp(req){const forwarded=trustProxy&&String(req.headers['x-real-ip']||'').trim();return forwarded&&ipPattern.test(forwarded)?forwarded:req.socket.remoteAddress}
+  function limited(key,limit=12){const t=Date.now();if(rate.size>20000)for(const [k,v] of rate)if(v.until<t)rate.delete(k);const item=rate.get(key)||{count:0,until:t+60_000};if(item.until<t){item.count=0;item.until=t+60_000}item.count++;rate.set(key,item);return item.count>limit}
   function audit(actor,action,type,target){db.prepare('INSERT INTO audit VALUES(?,?,?,?,?,?)').run(id(),actor,action,type,target,now())}
   function session(req){const token=parseCookies(req.headers.cookie).kids_session;if(!token)return null;let row=db.prepare('SELECT s.user_id,s.learner_id,u.role,u.email,u.display_name,u.guardian_approved_at,u.email_verified_at FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?').get(hash(token),Date.now());return row||null}
   function requireRole(res,session,roles){if(!session){fail(res,401,'sign_in_required');return false}let role=session.learner_id?'LEARNER':session.role;if(!roles.includes(role)){fail(res,403,'forbidden');return false}return true}
@@ -112,7 +123,7 @@ export function createApp({database=':memory:',publicOrigin=process.env.PUBLIC_O
         // so it is handled before the browser Origin check. Disabled until a secret is configured.
         if(method==='POST'&&p==='/api/payments/webhook'){
           if(!paymentSettings?.webhookSecret)return fail(res,503,'payments_not_configured');
-          if(limited('payment-webhook:'+req.socket.remoteAddress,120))return fail(res,429,'rate_limited');
+          if(limited('payment-webhook:'+clientIp(req),120))return fail(res,429,'rate_limited');
           let raw='',size=0;for await(const chunk of req){size+=chunk.length;if(size>32768)return fail(res,413,'body_too_large');raw+=chunk}
           const verified=verifyPaymentWebhook({secret:paymentSettings.webhookSecret,rawBody:raw,signatureHeader:req.headers['x-usam-signature']});
           if(!verified.ok)return fail(res,401,verified.reason);
@@ -149,11 +160,11 @@ export function createApp({database=':memory:',publicOrigin=process.env.PUBLIC_O
           if(!requireRole(res,s,['GUARDIAN']))return;
           if(limited('change-password:'+s.user_id,5))return fail(res,429,'rate_limited');
           const b=await body(req),u=db.prepare('SELECT password_hash FROM users WHERE id=?').get(s.user_id);
-          if(!passwordMatches(String(b.currentPassword||''),u.password_hash))return fail(res,401,'invalid_credentials');
+          if(!(await passwordMatchesAsync(String(b.currentPassword||''),u.password_hash)))return fail(res,401,'invalid_credentials');
           if(!validPassword(b.newPassword)||b.currentPassword===b.newPassword)return fail(res,400,'invalid_new_password');
-          const currentToken=hash(parseCookies(req.headers.cookie).kids_session||'');
+          const currentToken=hash(parseCookies(req.headers.cookie).kids_session||''),newHash=await passwordHashAsync(b.newPassword);
           db.exec('BEGIN IMMEDIATE');try{
-            db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(passwordHash(b.newPassword),s.user_id);
+            db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(newHash,s.user_id);
             db.prepare('DELETE FROM sessions WHERE user_id=? AND token_hash<>?').run(s.user_id,currentToken);
             audit(s.user_id,'PASSWORD_CHANGED','user',s.user_id);
             db.exec('COMMIT');
@@ -162,29 +173,29 @@ export function createApp({database=':memory:',publicOrigin=process.env.PUBLIC_O
         }
         if(method==='GET'&&p==='/api/learner/controls'){if(!requireRole(res,s,['LEARNER']))return;return json(res,200,{controls:learnerControls(s.learner_id)})}
         if(method==='POST'&&p==='/api/auth/register'){
-          if(limited('register:'+req.socket.remoteAddress,5))return fail(res,429,'rate_limited');
+          if(limited('register:'+clientIp(req),5))return fail(res,429,'rate_limited');
           const b=await body(req),email=String(b.email||'').trim().toLowerCase();
           if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||!validPassword(b.password)||!validNickname(b.displayName))return fail(res,400,'invalid_registration');
           if(db.prepare('SELECT id FROM users WHERE email=?').get(email))return fail(res,409,'email_exists');
-          const userId=id();db.prepare('INSERT INTO users(id,role,email,password_hash,display_name,guardian_approved_at,created_at) VALUES(?,?,?,?,?,?,?)').run(userId,'GUARDIAN',email,passwordHash(b.password),b.displayName.trim(),null,now());
+          const pwHash=await passwordHashAsync(b.password);if(db.prepare('SELECT id FROM users WHERE email=?').get(email))return fail(res,409,'email_exists');const userId=id();db.prepare('INSERT INTO users(id,role,email,password_hash,display_name,guardian_approved_at,created_at) VALUES(?,?,?,?,?,?,?)').run(userId,'GUARDIAN',email,pwHash,b.displayName.trim(),null,now());
           if(requireEmailVerification){try{await sendVerification({id:userId,email})}catch{db.prepare('DELETE FROM users WHERE id=?').run(userId);return fail(res,503,'verification_delivery_unavailable')}}
           newSession(res,userId);audit(userId,'GUARDIAN_REGISTERED','user',userId);return json(res,201,{role:'GUARDIAN',guardianApproved:false,emailVerificationRequired:requireEmailVerification});
         }
         if(method==='GET'&&p==='/api/auth/verify-email/validate'){const token=url.searchParams.get('token')||'';const valid=token.length>=32&&!!db.prepare('SELECT 1 FROM email_verifications WHERE token_hash=? AND expires_at>?').get(hash(token),Date.now());return json(res,200,{valid})}
         if(method==='POST'&&p==='/api/auth/verify-email'){
-          if(limited('verify:'+req.socket.remoteAddress,10))return fail(res,429,'rate_limited');const b=await body(req);if(typeof b.token!=='string'||b.token.length<32)return fail(res,400,'invalid_token');const row=db.prepare('SELECT user_id FROM email_verifications WHERE token_hash=? AND expires_at>?').get(hash(b.token),Date.now());if(!row)return fail(res,400,'invalid_or_expired_token');db.exec('BEGIN IMMEDIATE');try{db.prepare('UPDATE users SET email_verified_at=? WHERE id=? AND role=?').run(now(),row.user_id,'GUARDIAN');db.prepare('DELETE FROM email_verifications WHERE user_id=?').run(row.user_id);audit(row.user_id,'EMAIL_VERIFIED','user',row.user_id);db.exec('COMMIT')}catch(e){db.exec('ROLLBACK');throw e}return json(res,200,{verified:true})
+          if(limited('verify:'+clientIp(req),10))return fail(res,429,'rate_limited');const b=await body(req);if(typeof b.token!=='string'||b.token.length<32)return fail(res,400,'invalid_token');const row=db.prepare('SELECT user_id FROM email_verifications WHERE token_hash=? AND expires_at>?').get(hash(b.token),Date.now());if(!row)return fail(res,400,'invalid_or_expired_token');db.exec('BEGIN IMMEDIATE');try{db.prepare('UPDATE users SET email_verified_at=? WHERE id=? AND role=?').run(now(),row.user_id,'GUARDIAN');db.prepare('DELETE FROM email_verifications WHERE user_id=?').run(row.user_id);audit(row.user_id,'EMAIL_VERIFIED','user',row.user_id);db.exec('COMMIT')}catch(e){db.exec('ROLLBACK');throw e}return json(res,200,{verified:true})
         }
         if(method==='POST'&&p==='/api/auth/verify-email/resend'){
           if(!requireRole(res,s,['GUARDIAN']))return;if(!requireEmailVerification)return fail(res,503,'verification_unavailable');if(s.email_verified_at)return json(res,200,{verified:true});if(limited('verify-resend:'+s.user_id,3))return fail(res,429,'rate_limited');try{await sendVerification({id:s.user_id,email:s.email})}catch{return fail(res,503,'verification_delivery_unavailable')}return json(res,200,{sent:true})
         }
         if(method==='POST'&&p==='/api/auth/login'){
-          if(limited('login:'+req.socket.remoteAddress,10))return fail(res,429,'rate_limited');
+          if(limited('login:'+clientIp(req),10))return fail(res,429,'rate_limited');
           const b=await body(req),u=db.prepare('SELECT * FROM users WHERE email=?').get(String(b.email||'').trim().toLowerCase());
-          if(!u||!passwordMatches(String(b.password||''),u.password_hash))return fail(res,401,'invalid_credentials');
+          const matches=await passwordMatchesAsync(String(b.password||''),u?u.password_hash:DUMMY_HASH);if(!u||!matches)return fail(res,401,'invalid_credentials');
           newSession(res,u.id);return json(res,200,{role:u.role,name:u.display_name,guardianApproved:!!u.guardian_approved_at});
         }
         if(method==='POST'&&p==='/api/auth/forgot-password'){
-          if(limited('recovery:'+req.socket.remoteAddress,3))return fail(res,429,'rate_limited');
+          if(limited('recovery:'+clientIp(req),3))return fail(res,429,'rate_limited');
           const b=await body(req),email=String(b.email||'').trim().toLowerCase();if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return fail(res,400,'invalid_email');
           if(!emailSender||!publicOrigin)return fail(res,503,'recovery_unavailable');
           const user=db.prepare('SELECT id,email FROM users WHERE email=?').get(email);
@@ -195,10 +206,10 @@ export function createApp({database=':memory:',publicOrigin=process.env.PUBLIC_O
           const token=url.searchParams.get('token')||'';const valid=token.length>=32&&!!db.prepare('SELECT 1 FROM password_resets WHERE token_hash=? AND expires_at>?').get(hash(token),Date.now());return json(res,200,{valid});
         }
         if(method==='POST'&&p==='/api/auth/reset-password'){
-          if(limited('reset:'+req.socket.remoteAddress,8))return fail(res,429,'rate_limited');const b=await body(req);
-          if(typeof b.token!=='string'||b.token.length<32||!validPassword(b.password))return fail(res,400,'invalid_reset');
+          if(limited('reset:'+clientIp(req),8))return fail(res,429,'rate_limited');const b=await body(req);
+          if(typeof b.token!=='string'||b.token.length<32||!validPassword(b.password))return fail(res,400,'invalid_reset');const resetHash=await passwordHashAsync(b.password);
           const row=db.prepare('SELECT user_id FROM password_resets WHERE token_hash=? AND expires_at>?').get(hash(b.token),Date.now());if(!row)return fail(res,400,'invalid_or_expired_token');
-          db.exec('BEGIN IMMEDIATE');try{db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(passwordHash(b.password),row.user_id);db.prepare('DELETE FROM password_resets WHERE user_id=?').run(row.user_id);db.prepare('DELETE FROM sessions WHERE user_id=?').run(row.user_id);audit(row.user_id,'PASSWORD_RESET','user',row.user_id);db.exec('COMMIT')}catch(e){db.exec('ROLLBACK');throw e}
+          db.exec('BEGIN IMMEDIATE');try{db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(resetHash,row.user_id);db.prepare('DELETE FROM password_resets WHERE user_id=?').run(row.user_id);db.prepare('DELETE FROM sessions WHERE user_id=?').run(row.user_id);audit(row.user_id,'PASSWORD_RESET','user',row.user_id);db.exec('COMMIT')}catch(e){db.exec('ROLLBACK');throw e}
           return json(res,200,{reset:true});
         }
         if(method==='POST'&&p==='/api/auth/logout'){if(s){const token=parseCookies(req.headers.cookie).kids_session;db.prepare('DELETE FROM sessions WHERE token_hash=?').run(hash(token))}res.setHeader('Set-Cookie','kids_session=; HttpOnly; Path=/; SameSite=Strict; Max-Age=0'+(secureCookies?'; Secure':''));return json(res,200,{ok:true})}

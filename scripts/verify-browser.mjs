@@ -123,6 +123,29 @@ try{
  ok('Live AI unavailable message shown',await evaluate(bodyHas('Live AI is not available on this server right now')));
  await shot('guardian-safety-en-1280');
  ok('no uncaught page errors on the last screen',await evaluate("!document.querySelector('.form-error[role=alert]')"));
+
+ // ===== API outage: production build must not fall back to the browser-only demo =====
+ // Static server for dist/ whose /api answers like Nginx with a dead upstream (502, HTML).
+ const {createServer}=await import('node:http');const {readFileSync}=await import('node:fs');
+ const types={'.js':'text/javascript','.css':'text/css','.html':'text/html','.svg':'image/svg+xml','.png':'image/png'};
+ let apiUp=false;
+ const outage=createServer((req,res)=>{const url=new URL(req.url,'http://x');
+  if(url.pathname.startsWith('/api/')){if(apiUp){fetch(base+url.pathname+url.search).then(async r=>{res.writeHead(r.status,{'content-type':r.headers.get('content-type')||''});res.end(Buffer.from(await r.arrayBuffer()))}).catch(()=>{res.writeHead(502);res.end()});return}res.writeHead(502,{'content-type':'text/html'});res.end('<h1>502 Bad Gateway</h1>');return}
+  const file=join(root,'dist',url.pathname==='/'||!url.pathname.includes('.')?'index.html':url.pathname);
+  try{const body=readFileSync(file);res.writeHead(200,{'content-type':types[file.slice(file.lastIndexOf('.'))]||'application/octet-stream'});res.end(body)}catch{res.writeHead(404);res.end()}});
+ await new Promise(r=>outage.listen(0,'127.0.0.1',r));
+ const outageBase='http://127.0.0.1:'+outage.address().port;
+ await cdp('Page.navigate',{url:outageBase+'/'});await waitFor("document.readyState==='complete'");
+ await evaluate("localStorage.clear();localStorage.setItem('usamkids-lang','en')");
+ await cdp('Page.navigate',{url:outageBase+'/app'});
+ ok('API down: unavailable notice shown instead of the demo',await waitFor("!!document.querySelector('[data-testid=api-unavailable]')",20000),await evaluate('document.body.innerText.slice(0,200)'));
+ ok('API down: no demo progress written to localStorage',await evaluate("localStorage.getItem('usamkids-demo')===null"));
+ ok('API down: onboarding (demo) is not offered',!(await evaluate("!!document.querySelector('.onboarding-screen')")));
+ await shot('api-unavailable-en-1280');
+ apiUp=true;
+ ok('API back: app reconnects on its own and leaves the notice',await waitFor("!document.querySelector('[data-testid=api-unavailable]')",20000));
+ ok('API back: still no demo progress in localStorage',await evaluate("localStorage.getItem('usamkids-demo')===null"));
+ outage.closeAllConnections();await new Promise(r=>outage.close(r));
 }catch(e){ok('browser verification aborted',false,e.stack||e.message)}
 finally{
  try{ws.close()}catch{}chrome.kill();await sleep(500);

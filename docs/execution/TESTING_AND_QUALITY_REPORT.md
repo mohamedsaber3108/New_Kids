@@ -60,3 +60,6 @@ admin integration status.
 ## Not verified here (needs your accounts/infrastructure)
 Real email delivery to an inbox, a real AI provider call, a real payment provider, EC2/DNS/TLS,
 CloudWatch alarms, browser E2E on real devices, load testing at production scale.
+
+## Latest gate run (final production-readiness pass)
+unit 105/105 (adds tests/client-ip.test.mjs) | journey 18 | comprehensive 50 | parity 457 | roles 75 | entrypoint 7 | build OK | browser 50/50 (adds API-outage checks) | routes 338/338 | forms 15/15 | docker 52/52 (adds proxy client-IP + gzip checks) | npm run test:load PASS. See PROGRESS.md for D12-D16.

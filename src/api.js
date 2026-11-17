@@ -6,8 +6,17 @@ export async function api(path,{method='GET',body}={}){
   if(!response.ok)throw new Error(data.error||'request_failed');
   return data;
 }
-export async function detectApi(){
-  try{const h=await api('/health');return h.ok&&h.service==='usam-kids-api'}catch{return false}
+// Browser-only demo (progress kept in localStorage) is for local development. Production builds
+// never fall back to it silently, because a child's work would look saved but never reach the server.
+// A deliberate demo deployment can opt in with VITE_DEMO_MODE=true at build time.
+const env=import.meta.env||{};
+export const demoAllowed=!env.PROD||env.VITE_DEMO_MODE==='true';
+export async function detectApi({attempts=1,delay=1500}={}){
+  for(let i=0;i<attempts;i++){
+    try{const h=await api('/health');if(h.ok&&h.service==='usam-kids-api')return true}catch{}
+    if(i<attempts-1)await new Promise(r=>setTimeout(r,delay*(i+1)));
+  }
+  return false;
 }
 export function fromSnapshot(snapshot){
   return {
