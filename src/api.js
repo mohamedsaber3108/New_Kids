@@ -3,6 +3,8 @@ export async function api(path,{method='GET',body}={}){
   const type=response.headers.get('content-type')||'';
   if(!type.includes('application/json'))throw new Error('api_unavailable');
   const data=await response.json();
+  // A protected call answered "sign in required": the session expired or was revoked elsewhere.
+  if(response.status===401&&data.error==='sign_in_required'&&typeof window!=='undefined')window.dispatchEvent(new CustomEvent('usam:signed-out'));
   if(!response.ok)throw new Error(data.error||'request_failed');
   return data;
 }

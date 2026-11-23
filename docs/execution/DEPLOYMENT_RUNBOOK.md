@@ -22,6 +22,22 @@ node scripts/verify-docker.mjs   # real images: build, run, journey, backup/rest
 ```
 Both must end with 0 failures before you deploy.
 
+## Quick start: one command on a fresh Ubuntu EC2 instance
+Prerequisite: the instance's security group allows inbound **80 and 443** from 0.0.0.0/0.
+In the EC2 console choose *Connect → EC2 Instance Connect → Connect*, then paste:
+```bash
+curl -fsSL https://raw.githubusercontent.com/mohamedsaber3108/New_Kids/main/deploy/ec2-bootstrap.sh | sudo bash
+```
+`deploy/ec2-bootstrap.sh` installs Docker, Nginx and Certbot; clones the repo to `/opt/usam-new`;
+writes `.env` with generated staff passwords (printed once and kept in `/root/usam-credentials.txt`);
+builds and starts the stack; gets a Let's Encrypt certificate; enables the hourly backup timer; and
+checks `https://<host>/api/health/ready`. Without a domain it uses `<public-ip-with-dashes>.sslip.io`.
+With a domain whose A record points at the instance:
+`curl -fsSL …/ec2-bootstrap.sh | sudo DOMAIN=kids.usamif.com CERT_EMAIL=you@usamif.com bash`.
+Re-running the same command updates to the latest `main` and keeps data, `.env` and certificates.
+Attach an **Elastic IP** first: a plain public IP changes when the instance stops, which breaks the
+sslip.io hostname and DNS. The rest of this runbook explains each step in detail.
+
 ## 1. Host preparation [OWNER]
 - Ubuntu 22.04/24.04 (or Amazon Linux 2023) EC2 instance, patched; EBS volume encrypted.
 - Security group: inbound 443 (and 80 for ACME redirect) from the internet; SSH only from your

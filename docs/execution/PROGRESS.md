@@ -262,3 +262,24 @@ GitHub: the repository has no remote; the target repository was not identified (
 npm audit 0 vulnerabilities · unit 105/105 · journey 18/18 · comprehensive 50/50 · parity 457/457 ·
 roles 75/75 · entrypoint 7/7 · build OK · browser 50/50 · routes 338/338 · forms 15/15 ·
 docker 52/52 · load PASS (893 req/s, p95 86 ms, 0 errors; workstation hardware).
+
+## Navigation and sign-in remastering pass
+- **D17 (high) wrong shell + repeated sign-in prompts**: guardian, admin and moderator pages used the
+  child's header and sidebar, so almost every navigation click sent a signed-in grown-up to a child
+  route that showed a login form; the form also flashed before the session check finished; public
+  pages kept showing "Log in"; `/admin` and `/moderator` showed "not found" to visitors; an expired
+  session left pages erroring. Fix: `src/access.js` is the single access model (public / learner /
+  guardian / admin / moderator, admins may use moderation). The shell waits for the session check,
+  gives each role its own header, sidebar and sign-out, shows the sign-in gate only to signed-out
+  visitors on private pages (with context, returning to the requested page; `next` cannot leave the
+  site), shows a "this area is for…" notice instead of a login form to signed-in users of another
+  role, shows "You are signed in" on /login, and re-gates in place with a notice when the API reports
+  `sign_in_required`. Child -> grown-up handoff ends the child session and returns to the dashboard.
+- `scripts/verify-navigation.mjs` clicks every header, sidebar and footer control for every role
+  (228 clicks) plus 19 scenario checks. `tests/access.test.mjs` covers the rules (5 tests).
+- Build tools moved to devDependencies; CI audits shipped code (`--omit=dev`, 0 vulnerabilities) and
+  reports build-tool advisories as a warning.
+- `deploy/ec2-bootstrap.sh`: one-command install/update on Ubuntu EC2 (see runbook Quick start).
+### Gate results (this pass, all executed)
+unit 110/110 · journey 18 · comprehensive 50 · parity 457 · roles 75 · entrypoint 7 · build OK ·
+navigation 24/24 · browser 50/50 · forms 15/15 · routes 338/338 · docker 52/52.
