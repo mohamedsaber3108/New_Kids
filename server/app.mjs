@@ -50,18 +50,25 @@ const latinDigits=value=>String(value??'').replace(/[٠-٩]/g,d=>String(d.charCo
 const AR='[\\u0600-\\u06FF]',noAr='(?<!'+AR+')';
 const identityCues=[
   /\bmy (?:full |real |last |first )?name is\b/i,
-  /\b(?:[Ii] am|[Ii]'m) [A-Z][a-z]+ [A-Z][a-z]+/,
+  // "I am" + three Capitalized words (two words would block "I am Iron Man"); ' or ’.
+  /\b[Ii](?: am|['’]m) [A-Z][a-z]+ [A-Z][a-z]+ [A-Z][a-z]+/,
   /\bcall(?:ed)? me [A-Z]/,
-  /\b[Mm]y (?:friend|teacher|dad|mum|mom|father|mother|brother|sister)(?:'s name)? (?:is|is called|called) (?:(?:Mr|Mrs|Ms|Dr)\.? )?[A-Z][a-z]+ [A-Z][a-z]+/,
-  /\b(?:[A-Z][A-Za-z.]+ ){2,}(?:School|College|Academy|Institute)\b/,
+  /\b[Mm]y (?:friend|teacher|dad|mum|mom|father|mother|brother|sister)(?:['’]s name)? (?:is|is called|called) (?:(?:Mr|Mrs|Ms|Dr)\.? )?[A-Z][a-z]+ [A-Z][a-z]+/,
+  // A school name needs a first-person cue in front, so "My Dream School" or "Ninja Coding Academy" pass.
+  /(?:\b[Mm]y school(?: name)? is|\b[Ii] (?:go|went) to|\b[Ii] (?:study|studied) at|\b[Ii] attend(?:ed)?|\b[Ii] am in|\bclass is \d+[A-Za-z]? at) (?:[A-Z][A-Za-z.]+ ){1,}(?:School|College|Academy|Institute)\b/,
   /\b[Mm]y school(?: name)? is [A-Z]/,
   /\b\d+[A-Za-z]? (?:[A-Z][a-z]+ ){0,3}(?:Street|St|Road|Rd|Avenue|Ave|Corniche|Square|Lane)\b/,
-  /\b(?:building|bldg|apartment|flat|street) \d+/i,
-  new RegExp(noAr+'اسمي(?!'+AR+')'),
+  // building/flat/street + a number only when it reads like an address (street or floor follows, comma or end),
+  // so "building 3 robots" and "building 3D bridges" pass.
+  /\b(?:building|bldg|apartment|apt|flat|street) \d+[A-Za-z]?(?:,|\s+(?:street|st|road|rd|floor|apartment|apt|flat|building|bldg)\b|\s*[.!?]?$)/i,
+  // "اسمي" needs two following words and not "في" ("اسمي في اللعبة" passes). Diacritics/tatweel are not normalised (limit).
+  new RegExp(noAr+'اسمي\\s+(?!في(?!'+AR+'))'+AR+'+\\s+(?!في(?!'+AR+'))'+AR+'+'),
   new RegExp('(?:صاحبي|صديقي|صاحبتي|صديقتي|بابا|ماما|أبويا|أمي|أخويا|اخويا|أختي|اختي)\\s+(?:بتاع\\S*\\s+)?(?:اسمه|اسمها)'),
-  new RegExp(noAr+'مدرسة\\s+(?:ال'+AR+'+|'+AR+'+\\s+ال'+AR+'+)'),
-  new RegExp(noAr+'(?:أسكن|اسكن|ساكن|ساكنة|بيتي|بيتنا|منزلي)\\s+(?:في|على)'),
-  new RegExp('(?:'+noAr+'(?:شارع|كورنيش|ميدان)\\s+(?:رقم\\s+)?\\d+|\\d+\\s+(?:شارع|كورنيش|ميدان)|'+noAr+'(?:عمارة|شقة)\\s+(?:رقم\\s+)?\\d+|'+noAr+'شارع\\s+ال'+AR+'+)')
+  // A school name needs a first-person cue ("أنا في", "بروح", "مدرستي ..."), so "مدرسة الأحلام في اللعبة" passes.
+  new RegExp(noAr+'(?:(?:أنا|أدرس|ادرس|بدرس)\\s+في|بروح|رايح|(?:اسم\\s+)?مدرستي|فصلي\\s+\\S+(?:\\s+\\S)?\\s+في)\\s+مدرسة\\s+'+AR+'+'),
+  // Home verb + a street/building word or a number; "الدب ساكن في الغابة" and "بيتي على الشجرة" pass.
+  new RegExp(noAr+'(?:أسكن|اسكن|ساكن|ساكنة|بيتي|بيتنا|منزلي)\\s+(?:(?:في|على)\\s+)?(?:\\d|(?:شارع|عمارة|شقة|حي|كورنيش|ميدان)\\s)'),
+  new RegExp('(?:'+noAr+'(?:شارع|كورنيش|ميدان)\\s+(?:رقم\\s+)?\\d+|\\d+\\s+(?:شارع|كورنيش|ميدان)|'+noAr+'(?:عمارة|شقة)\\s+(?:رقم\\s+)?\\d+)')
 ];
 const sharesIdentity=value=>{const text=latinDigits(value);return identityCues.some(r=>r.test(text))};
 const privateInfo={test(value){

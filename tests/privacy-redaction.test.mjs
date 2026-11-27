@@ -15,11 +15,11 @@ const PRIVATE={
  fullNameAr:'يوسف عبد الرحمن زكي',
  school:'Nile Bright Stars School',
  schoolAr:'مدرسة نجوم النيل',
- address:'27 Jasmine Street Maadi',
- addressAr:'شارع الياسمين رقم ٢٧ المعادي'
+ address:'27 Moonberry Street Toytown',
+ addressAr:'شارع قوس قزح رقم ٢٧ بلدة اللعب'
 };
 // Distinctive fragments that must not appear anywhere outside the table that stores the user's own text.
-const NEEDLES=[PRIVATE.email,PRIVATE.phoneLatin,PRIVATE.phoneArabic,PRIVATE.phoneSpaced,'1234 5678','Abdelrahman','Bright Stars','Jasmine Street','عبد الرحمن','نجوم النيل','الياسمين'];
+const NEEDLES=[PRIVATE.email,PRIVATE.phoneLatin,PRIVATE.phoneArabic,PRIVATE.phoneSpaced,'1234 5678','Abdelrahman','Bright Stars','Moonberry Street','عبد الرحمن','نجوم النيل','قوس قزح'];
 
 const okJson=(data,status=200)=>({ok:status>=200&&status<300,status,json:async()=>data,headers:{get:()=>null}});
 const sha=t=>createHash('sha256').update(t).digest('hex');
@@ -104,8 +104,11 @@ test('privacy: personal values never reach logs, ai_usage, audit, email delivery
   const observed={
    logs:JSON.stringify(t.logs),console:t.consoleLines.join('\n'),
    ai_usage:dump(app.db,'ai_usage'),audit:dump(app.db,'audit'),email_deliveries:dump(app.db,'email_deliveries'),
-   aiRequests:t.aiBodies.join('\n')
+   aiRequests:t.aiBodies.join('\n'),
+   // Refused chat messages are not saved; only the allowed control sentence is.
+   conversation_messages:dump(app.db,'conversation_messages')
   };
+  assert.ok(app.db.prepare('SELECT count(*) AS n FROM conversation_messages').get().n>0,'chat history has the control message (not vacuous)');
   for(const [where,text] of Object.entries(observed))
    for(const needle of NEEDLES)assert.ok(!text.includes(needle),where+' contains '+JSON.stringify(needle));
   assert.ok(t.logs.length>0,'request log is on and captured entries');
@@ -127,18 +130,22 @@ test('privacy filter: precision and recall on the labelled set (measured, printe
  const t=await startApp();
  try{
   const {app,call}=t;let f=mintLearner(app.db);
-  let tp=0,fp=0,fn=0,tn=0,n=0;const missed=[],blocked=[];
+  let tp=0,fp=0,fn=0,tn=0,n=0,hardN=0,hardFp=0;const missed=[],blocked=[],hardBlocked=[];
   for(const item of set){
    if(n++%15===0)f=mintLearner(app.db); // the chat route allows 20 messages a minute per child
    const r=await call('/api/assist',{method:'POST',cookie:f.learner,body:{message:item.text,companionId:'codey'}});
    const detected=r.data.state==='RESTRICTED';
    if(item.private&&detected)tp++;else if(item.private)(fn++,missed.push(item.text));else if(detected)(fp++,blocked.push(item.text));else tn++;
+   if(item.hard){hardN++;if(detected){hardFp++;hardBlocked.push(item.text)}}
   }
   const precision=tp/(tp+fp||1),recall=tp/(tp+fn||1);
   process.stdout.write('\n[privacy-filter] items='+set.length+' TP='+tp+' FP='+fp+' FN='+fn+' TN='+tn+' precision='+precision.toFixed(3)+' recall='+recall.toFixed(3)+'\n');
   if(missed.length)process.stdout.write('[privacy-filter] missed (private, allowed): '+JSON.stringify(missed)+'\n');
   if(blocked.length)process.stdout.write('[privacy-filter] blocked (normal, refused): '+JSON.stringify(blocked)+'\n');
-  // Only guard: normal sentences already used in existing tests stay allowed. No pass line is set here.
+  process.stdout.write('[privacy-filter] hard negatives='+hardN+' false positives='+hardFp+'\n');
+  assert.ok(hardN>=25,'hard-negative group has 25+ items');
+  assert.deepEqual(hardBlocked,[],'no hard negative (normal child text that looks like an identity cue) is blocked');
+  // Guard: normal sentences already used in existing tests stay allowed. No pass line is set here.
   f=mintLearner(app.db);
   for(const ok of ['how do I start?','give me a hint','one more?','what is the first step','Try it'])
    assert.equal((await call('/api/assist',{method:'POST',cookie:f.learner,body:{message:ok,companionId:'codey'}})).data.state,'SAFE',ok);
