@@ -43,14 +43,57 @@ const validPassword=s=>typeof s==='string'&&s.length>=12&&s.length<=128;
 // (٠١٠١٢٣٤٥٦٧٨ / ۰۱۰...), +country codes and (555) 123-4567 styles. Rule: after normalizing
 // digits and joining digit groups (2+ digits) split by space/dash/dot/brackets, any run of
 // 9+ digits is treated as a phone/ID number. Short numbers (scores, years, levels) pass.
+const latinDigits=value=>String(value??'').replace(/[٠-٩]/g,d=>String(d.charCodeAt(0)-0x660)).replace(/[۰-۹]/g,d=>String(d.charCodeAt(0)-0x6F0));
+// Chat only (T-07): a child telling the companion their name, school or address. Cue-based on purpose
+// (a name alone cannot be told from a normal word), so "I go to school" and "اسم القطة مشمش" pass.
+// shortcut: cue patterns, not name recognition; upgrade when the AI-safety harness (T-09) shows misses.
+const AR='[\\u0600-\\u06FF]',noAr='(?<!'+AR+')';
+const identityCues=[
+  /\bmy (?:full |real |last |first )?name is\b/i,
+  // "I am" + three Capitalized words (two words would block "I am Iron Man"); ' or ’.
+  /\b[Ii](?: am|['’]m) [A-Z][a-z]+ [A-Z][a-z]+ [A-Z][a-z]+/,
+  /\bcall(?:ed)? me [A-Z]/,
+  /\b[Mm]y (?:friend|teacher|dad|mum|mom|father|mother|brother|sister)(?:['’]s name)? (?:is|is called|called) (?:(?:Mr|Mrs|Ms|Dr)\.? )?[A-Z][a-z]+ [A-Z][a-z]+/,
+  // A school name needs a first-person cue in front, so "My Dream School" or "Ninja Coding Academy" pass.
+  /(?:\b[Mm]y school(?: name)? is|\b[Ii] (?:go|went) to|\b[Ii] (?:study|studied) at|\b[Ii] attend(?:ed)?|\b[Ii] am in|\bclass is \d+[A-Za-z]? at) (?:[A-Z][A-Za-z.]+ ){1,}(?:School|College|Academy|Institute)\b/,
+  /\b[Mm]y school(?: name)? is [A-Z]/,
+  /\b\d+[A-Za-z]? (?:[A-Z][a-z]+ ){0,3}(?:Street|St|Road|Rd|Avenue|Ave|Corniche|Square|Lane)\b/,
+  // building/flat/street + a number only when it reads like an address (street or floor follows, comma or end),
+  // so "building 3 robots" and "building 3D bridges" pass.
+  /\b(?:building|bldg|apartment|apt|flat|street) \d+[A-Za-z]?(?:,|\s+(?:street|st|road|rd|floor|apartment|apt|flat|building|bldg)\b|\s*[.!?]?$)/i,
+  // "اسمي" needs two following words and not "في" ("اسمي في اللعبة" passes). Diacritics/tatweel are not normalised (limit).
+  new RegExp(noAr+'اسمي\\s+(?!في(?!'+AR+'))'+AR+'+\\s+(?!في(?!'+AR+'))'+AR+'+'),
+  new RegExp('(?:صاحبي|صديقي|صاحبتي|صديقتي|بابا|ماما|أبويا|أمي|أخويا|اخويا|أختي|اختي)\\s+(?:بتاع\\S*\\s+)?(?:اسمه|اسمها)'),
+  // A school name needs a first-person cue ("أنا في", "بروح", "مدرستي ..."), so "مدرسة الأحلام في اللعبة" passes.
+  new RegExp(noAr+'(?:(?:أنا|أدرس|ادرس|بدرس)\\s+في|بروح|رايح|(?:اسم\\s+)?مدرستي|فصلي\\s+\\S+(?:\\s+\\S)?\\s+في)\\s+مدرسة\\s+'+AR+'+'),
+  // Home verb + a street/building word or a number; "الدب ساكن في الغابة" and "بيتي على الشجرة" pass.
+  new RegExp(noAr+'(?:أسكن|اسكن|ساكن|ساكنة|بيتي|بيتنا|منزلي)\\s+(?:(?:في|على)\\s+)?(?:\\d|(?:شارع|عمارة|شقة|حي|كورنيش|ميدان)\\s)'),
+  new RegExp('(?:'+noAr+'(?:شارع|كورنيش|ميدان)\\s+(?:رقم\\s+)?\\d+|\\d+\\s+(?:شارع|كورنيش|ميدان)|'+noAr+'(?:عمارة|شقة)\\s+(?:رقم\\s+)?\\d+)')
+];
+// Contact and link cues (chat only, judge b42): links, @handles, an app word near a contact word.
+const PLATFORM='(?:(?<![a-z])(?:snap(?:chat)?|insta(?:gram)?|tik ?tok|discord|whats ?app|telegram)(?![a-z])|سناب|انستا|انستجرام|تيك ?توك|ديسكورد|واتس|تليجرام)';
+const CONTACT='(?:\\b(?:me|add|follow|id|user(?:name)?)\\b|ضيفني|تابعني|كلمني|يوزر|اكونت|حسابي)';
+const contactCues=[
+  /\b(?:https?:\/\/|www\.)\S/i,
+  /\bt\.me\/\S/i,
+  /\b[a-z0-9-]+\.(?:com|net|org|me|io|gg|ly|app|link|eg)\b/i,
+  /(?:^|[^\w@])@\w{3,}/,
+  new RegExp(PLATFORM+'[\\s\\S]{0,40}'+CONTACT+'|'+CONTACT+'[\\s\\S]{0,40}'+PLATFORM,'i')
+];
+// Digit groups of any length joined across spaces or dashes; 8+ digits reads as a phone or ID (landlines too).
+const longNumber=text=>/\d{8,}/.test(text.replace(/(\d)[\s-]+(?=\d)/g,'$1'));
+const sharesIdentity=value=>{const text=latinDigits(value);return identityCues.some(r=>r.test(text))||contactCues.some(r=>r.test(text))||longNumber(text)};
+// One calm reply for every refusal, in the child's language (UX judge wording, b42).
+const RESTRICTED_REPLY={en:"Let's keep private things private. Please don't share names, phone numbers or addresses. Ask a grown-up if you need help. Want a hint on your mission instead?",ar:'خلينا نحافظ على أسرارك. مش لازم تكتب اسمك أو رقمك أو عنوانك هنا. اسأل ولي أمرك لو محتاج مساعدة. تحب تلميح للمهمة؟'};
+const replyLang=message=>/[\u0600-\u06FF]/.test(String(message??''))?'ar':'en';
 const privateInfo={test(value){
-  const text=String(value??'').replace(/[٠-٩]/g,d=>String(d.charCodeAt(0)-0x660)).replace(/[۰-۹]/g,d=>String(d.charCodeAt(0)-0x6F0));
+  const text=latinDigits(value);
   if(/[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}/.test(text))return true;
   let joined=text,prev;do{prev=joined;joined=joined.replace(/(\d{2,})[\s\-.()]+(?=\(?\d{2,})/g,'$1').replace(/\((\d{2,})\)/g,'$1')}while(joined!==prev);
   return /\d{9,}/.test(joined);
 }};
 function safeGuidance(message,companionId,missionId){
-  if(privateInfo.test(message)||/(password|كلمة السر|عنواني|رقم تليفوني)/i.test(message))return {state:'RESTRICTED',reply:'لا تشارك معلوماتك الشخصية هنا. اطلب مساعدة ولي أمرك إذا احتجت.'};
+  if(privateInfo.test(message)||sharesIdentity(message)||/(password|كلمة السر|عنواني|رقم تليفوني)/i.test(message)){const lang=replyLang(message);return {state:'RESTRICTED',lang,reply:RESTRICTED_REPLY[lang]}}
   const guide=companions.find(c=>c.id===companionId)||companions[0];
   const mission=missions.find(m=>m.id===missionId);
   if(/(hint|تلميح|ساعد)/i.test(message)&&mission)return {state:'SAFE',reply:mission.questions[0].hintAr};
