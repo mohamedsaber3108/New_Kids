@@ -39,7 +39,7 @@ const hintCount=()=>app.db.prepare('SELECT count(*) AS n FROM hint_events WHERE 
 
 // ---------- headless Chrome over CDP ----------
 const profile=mkdtempSync(join(tmpdir(),'usam-chrome-')),port=9300+Math.floor(Math.random()*500);
-const chrome=spawn(chromePath,['--headless=new','--remote-debugging-port='+port,'--user-data-dir='+profile,'--no-first-run','--no-default-browser-check','--disable-gpu','--disable-extensions','about:blank'],{stdio:'ignore'});
+const chrome=spawn(chromePath,['--headless=new','--remote-debugging-port='+port,'--user-data-dir='+profile,'--no-first-run','--no-default-browser-check','--disable-gpu','--disable-extensions',...(process.env.CI?['--no-sandbox']:[]),'about:blank'],{stdio:'ignore'});
 let target;for(let i=0;i<60&&!target;i++){try{target=(await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find(t=>t.type==='page')}catch{}if(!target)await sleep(250)}
 if(!target){console.error('Chrome did not start');process.exit(1)}
 const ws=new WebSocket(target.webSocketDebuggerUrl);await new Promise((r,j)=>{ws.onopen=r;ws.onerror=j});
