@@ -124,30 +124,47 @@ test('privacy: personal values never reach logs, ai_usage, audit, email delivery
 // The filter lives in server/app.mjs and is reachable through the child-chat route: a RESTRICTED
 // reply means "detected as personal information". Precision and recall are printed, not gated.
 test('privacy filter: precision and recall on the labelled set (measured, printed)',async()=>{
- const set=JSON.parse(readFileSync(new URL('./fixtures/privacy-filter-set.json',import.meta.url),'utf8'));
+ const set=['./fixtures/privacy-filter-set.json','./fixtures/privacy-filter-set-r3.json'].flatMap(file=>JSON.parse(readFileSync(new URL(file,import.meta.url),'utf8')));
  assert.ok(set.length>=200,'set has 200+ items');
  assert.ok(set.some(x=>x.lang==='ar')&&set.some(x=>x.lang==='en'));
  const t=await startApp();
  try{
   const {app,call}=t;let f=mintLearner(app.db);
-  let tp=0,fp=0,fn=0,tn=0,n=0,hardN=0,hardFp=0;const missed=[],blocked=[],hardBlocked=[];
+  let tp=0,fp=0,fn=0,tn=0,n=0,hardN=0,hardFp=0,unseenN=0,unseenHit=0;const missed=[],blocked=[],hardBlocked=[];
   for(const item of set){
    if(n++%15===0)f=mintLearner(app.db); // the chat route allows 20 messages a minute per child
    const r=await call('/api/assist',{method:'POST',cookie:f.learner,body:{message:item.text,companionId:'codey'}});
    const detected=r.data.state==='RESTRICTED';
    if(item.private&&detected)tp++;else if(item.private)(fn++,missed.push(item.text));else if(detected)(fp++,blocked.push(item.text));else tn++;
-   if(item.hard){hardN++;if(detected){hardFp++;hardBlocked.push(item.text)}}
+   if(item.hard){hardN++;if(detected){hardFp++;hardBlocked.push(item.text)}}if(item.unseen){unseenN++;if(detected)unseenHit++}
   }
   const precision=tp/(tp+fp||1),recall=tp/(tp+fn||1);
   process.stdout.write('\n[privacy-filter] items='+set.length+' TP='+tp+' FP='+fp+' FN='+fn+' TN='+tn+' precision='+precision.toFixed(3)+' recall='+recall.toFixed(3)+'\n');
   if(missed.length)process.stdout.write('[privacy-filter] missed (private, allowed): '+JSON.stringify(missed)+'\n');
   if(blocked.length)process.stdout.write('[privacy-filter] blocked (normal, refused): '+JSON.stringify(blocked)+'\n');
   process.stdout.write('[privacy-filter] hard negatives='+hardN+' false positives='+hardFp+'\n');
+  process.stdout.write('[privacy-filter] unseen positives='+unseenN+' caught='+unseenHit+' recall='+(unseenHit/(unseenN||1)).toFixed(3)+' (known limit: bare names, lower-case names, diacritics, digits as words)\n');
   assert.ok(hardN>=25,'hard-negative group has 25+ items');
   assert.deepEqual(hardBlocked,[],'no hard negative (normal child text that looks like an identity cue) is blocked');
   // Guard: normal sentences already used in existing tests stay allowed. No pass line is set here.
   f=mintLearner(app.db);
   for(const ok of ['how do I start?','give me a hint','one more?','what is the first step','Try it'])
    assert.equal((await call('/api/assist',{method:'POST',cookie:f.learner,body:{message:ok,companionId:'codey'}})).data.state,'SAFE',ok);
+ }finally{await t.stop()}
+});
+
+// UX judge (b42): one calm reply for every refusal, in the child's language; the API reports lang for the UI.
+test('chat refusal: one calm reply in the child language (EN and AR)',async()=>{
+ const t=await startApp();
+ try{
+  const {app,call}=t;const f=mintLearner(app.db);
+  const en=await call('/api/assist',{method:'POST',cookie:f.learner,body:{message:'add me on snap kidfake',companionId:'codey'}});
+  assert.equal(en.data.state,'RESTRICTED');assert.equal(en.data.lang,'en');
+  assert.equal(en.data.reply,"Let's keep private things private. Please don't share names, phone numbers or addresses. Ask a grown-up if you need help. Want a hint on your mission instead?");
+  const ar=await call('/api/assist',{method:'POST',cookie:f.learner,body:{message:'رقمي 01 0 12345678',companionId:'codey'}});
+  assert.equal(ar.data.state,'RESTRICTED');assert.equal(ar.data.lang,'ar');
+  assert.equal(ar.data.reply,'خلينا نحافظ على أسرارك. مش لازم تكتب اسمك أو رقمك أو عنوانك هنا. اسأل ولي أمرك لو محتاج مساعدة. تحب تلميح للمهمة؟');
+  const again=await call('/api/assist',{method:'POST',cookie:f.learner,body:{message:'my email is kid@example.test',companionId:'codey'}});
+  assert.equal(again.data.reply,en.data.reply,'same reply for every refusal');
  }finally{await t.stop()}
 });

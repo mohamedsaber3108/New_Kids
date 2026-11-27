@@ -70,7 +70,22 @@ const identityCues=[
   new RegExp(noAr+'(?:أسكن|اسكن|ساكن|ساكنة|بيتي|بيتنا|منزلي)\\s+(?:(?:في|على)\\s+)?(?:\\d|(?:شارع|عمارة|شقة|حي|كورنيش|ميدان)\\s)'),
   new RegExp('(?:'+noAr+'(?:شارع|كورنيش|ميدان)\\s+(?:رقم\\s+)?\\d+|\\d+\\s+(?:شارع|كورنيش|ميدان)|'+noAr+'(?:عمارة|شقة)\\s+(?:رقم\\s+)?\\d+)')
 ];
-const sharesIdentity=value=>{const text=latinDigits(value);return identityCues.some(r=>r.test(text))};
+// Contact and link cues (chat only, judge b42): links, @handles, an app word near a contact word.
+const PLATFORM='(?:(?<![a-z])(?:snap(?:chat)?|insta(?:gram)?|tik ?tok|discord|whats ?app|telegram)(?![a-z])|سناب|انستا|انستجرام|تيك ?توك|ديسكورد|واتس|تليجرام)';
+const CONTACT='(?:\\b(?:me|add|follow|id|user(?:name)?)\\b|ضيفني|تابعني|كلمني|يوزر|اكونت|حسابي)';
+const contactCues=[
+  /\b(?:https?:\/\/|www\.)\S/i,
+  /\bt\.me\/\S/i,
+  /\b[a-z0-9-]+\.(?:com|net|org|me|io|gg|ly|app|link|eg)\b/i,
+  /(?:^|[^\w@])@\w{3,}/,
+  new RegExp(PLATFORM+'[\\s\\S]{0,40}'+CONTACT+'|'+CONTACT+'[\\s\\S]{0,40}'+PLATFORM,'i')
+];
+// Digit groups of any length joined across spaces or dashes; 8+ digits reads as a phone or ID (landlines too).
+const longNumber=text=>/\d{8,}/.test(text.replace(/(\d)[\s-]+(?=\d)/g,'$1'));
+const sharesIdentity=value=>{const text=latinDigits(value);return identityCues.some(r=>r.test(text))||contactCues.some(r=>r.test(text))||longNumber(text)};
+// One calm reply for every refusal, in the child's language (UX judge wording, b42).
+const RESTRICTED_REPLY={en:"Let's keep private things private. Please don't share names, phone numbers or addresses. Ask a grown-up if you need help. Want a hint on your mission instead?",ar:'خلينا نحافظ على أسرارك. مش لازم تكتب اسمك أو رقمك أو عنوانك هنا. اسأل ولي أمرك لو محتاج مساعدة. تحب تلميح للمهمة؟'};
+const replyLang=message=>/[\u0600-\u06FF]/.test(String(message??''))?'ar':'en';
 const privateInfo={test(value){
   const text=latinDigits(value);
   if(/[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}/.test(text))return true;
@@ -78,7 +93,7 @@ const privateInfo={test(value){
   return /\d{9,}/.test(joined);
 }};
 function safeGuidance(message,companionId,missionId){
-  if(privateInfo.test(message)||sharesIdentity(message)||/(password|كلمة السر|عنواني|رقم تليفوني)/i.test(message))return {state:'RESTRICTED',reply:'لا تشارك معلوماتك الشخصية هنا. اطلب مساعدة ولي أمرك إذا احتجت.'};
+  if(privateInfo.test(message)||sharesIdentity(message)||/(password|كلمة السر|عنواني|رقم تليفوني)/i.test(message)){const lang=replyLang(message);return {state:'RESTRICTED',lang,reply:RESTRICTED_REPLY[lang]}}
   const guide=companions.find(c=>c.id===companionId)||companions[0];
   const mission=missions.find(m=>m.id===missionId);
   if(/(hint|تلميح|ساعد)/i.test(message)&&mission)return {state:'SAFE',reply:mission.questions[0].hintAr};

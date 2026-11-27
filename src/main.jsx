@@ -1,5 +1,6 @@
 import React,{useState,useEffect,useMemo,useRef} from 'react';
 import{createRoot}from'react-dom/client';
+import './chat-bidi.css';
 import{ArrowLeft,ArrowRight,Menu,X,Globe2,Sun,Moon,Sparkles,Compass,BookOpen,Code2,Brain,Palette,Lightbulb,ChevronLeft,ChevronRight,Play,Volume2,Mic,ShieldCheck,Users,Check,LockKeyhole,Star,Flame,FolderOpen,BarChart3,Settings,Search,Send,RotateCcw,Heart,Map,Home,ArrowUpRight,Plus,CheckCircle2,Info,Eye,HelpCircle,LogOut}from'lucide-react';
 import{companions,worlds,missions,projectPrompts,initialState,masteryForWorld}from'./data';
 import {CodeLab,AILab,StoryLab} from './labs';
