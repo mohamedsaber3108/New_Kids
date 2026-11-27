@@ -38,10 +38,15 @@ await call('/api/attempts',{method:'POST',cookie:learner,body:{missionId:'coding
 const hintCount=()=>app.db.prepare('SELECT count(*) AS n FROM hint_events WHERE learner_id=?').get(childId).n;
 
 // ---------- headless Chrome over CDP ----------
-const profile=mkdtempSync(join(tmpdir(),'usam-chrome-')),port=9300+Math.floor(Math.random()*500);
-const chrome=spawn(chromePath,['--headless=new','--remote-debugging-port='+port,'--user-data-dir='+profile,'--no-first-run','--no-default-browser-check','--disable-gpu','--disable-extensions','about:blank'],{stdio:'ignore'});
-let target;for(let i=0;i<60&&!target;i++){try{target=(await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find(t=>t.type==='page')}catch{}if(!target)await sleep(250)}
-if(!target){console.error('Chrome did not start');process.exit(1)}
+// Up to 3 start attempts, each on a fresh port and profile (a busy port or slow runner can fail one start).
+let profile,chrome,target;
+for(let attempt=0;attempt<3&&!target;attempt++){
+ if(chrome){chrome.kill();try{rmSync(profile,{recursive:true,force:true})}catch{}}
+ profile=mkdtempSync(join(tmpdir(),'usam-chrome-'));const port=9300+Math.floor(Math.random()*500);
+ chrome=spawn(chromePath,['--headless=new','--remote-debugging-port='+port,'--user-data-dir='+profile,'--no-first-run','--no-default-browser-check','--disable-gpu','--disable-extensions',...(process.env.CI?['--no-sandbox']:[]),'about:blank'],{stdio:'ignore'});
+ for(let i=0;i<60&&!target;i++){try{target=(await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find(t=>t.type==='page')}catch{}if(!target)await sleep(250)}
+}
+if(!target){chrome.kill();console.error('Chrome did not start after 3 attempts');process.exit(1)}
 const ws=new WebSocket(target.webSocketDebuggerUrl);await new Promise((r,j)=>{ws.onopen=r;ws.onerror=j});
 let seq=0;const pending=new Map();
 ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id&&pending.has(m.id)){const {resolve,reject}=pending.get(m.id);pending.delete(m.id);m.error?reject(new Error(m.error.message)):resolve(m.result)}};
