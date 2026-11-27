@@ -13,10 +13,15 @@ export function findChrome(){
 
 export async function launch(){
  const chromePath=findChrome();if(!chromePath)throw new Error('No Chrome/Edge found (set CHROME_PATH)');
- const profile=mkdtempSync(join(tmpdir(),'usam-chrome-')),port=9300+Math.floor(Math.random()*600);
- const proc=spawn(chromePath,['--headless=new','--remote-debugging-port='+port,'--user-data-dir='+profile,'--no-first-run','--no-default-browser-check','--disable-gpu','--disable-extensions','about:blank'],{stdio:'ignore'});
- let target;for(let i=0;i<80&&!target;i++){try{target=(await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find(t=>t.type==='page')}catch{}if(!target)await sleep(250)}
- if(!target)throw new Error('Chrome did not start');
+ // Up to 3 start attempts, each on a fresh port and profile (a busy port or slow runner can fail one start).
+ let profile,proc,target;
+ for(let attempt=0;attempt<3&&!target;attempt++){
+  if(proc){proc.kill();try{rmSync(profile,{recursive:true,force:true})}catch{}}
+  profile=mkdtempSync(join(tmpdir(),'usam-chrome-'));const port=9300+Math.floor(Math.random()*600);
+  proc=spawn(chromePath,['--headless=new','--remote-debugging-port='+port,'--user-data-dir='+profile,'--no-first-run','--no-default-browser-check','--disable-gpu','--disable-extensions',...(process.env.CI?['--no-sandbox']:[]),'about:blank'],{stdio:'ignore'});
+  for(let i=0;i<80&&!target;i++){try{target=(await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find(t=>t.type==='page')}catch{}if(!target)await sleep(250)}
+ }
+ if(!target){proc.kill();throw new Error('Chrome did not start after 3 attempts')}
  const ws=new WebSocket(target.webSocketDebuggerUrl);await new Promise((r,j)=>{ws.onopen=r;ws.onerror=j});
  let seq=0;const pending=new Map(),listeners=new Map();
  ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id&&pending.has(m.id)){const {resolve,reject}=pending.get(m.id);pending.delete(m.id);m.error?reject(new Error(m.error.message)):resolve(m.result)}else if(m.method){for(const fn of listeners.get(m.method)||[])fn(m.params)}};
