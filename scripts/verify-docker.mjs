@@ -33,7 +33,7 @@ try{
  const securityHeaders=h=>h.get('x-frame-options')==='DENY'&&h.get('x-content-type-options')==='nosniff'&&!!h.get('referrer-policy')&&!!h.get('permissions-policy');
  ok('SPA pages carry security headers',securityHeaders(page.headers),JSON.stringify(Object.fromEntries(page.headers)));
  const csp=page.headers.get('content-security-policy')||'';
- ok('SPA pages carry a strict CSP (self scripts, no framing)',/script-src 'self'/.test(csp)&&/frame-ancestors 'none'/.test(csp)&&/fonts\.googleapis\.com/.test(csp),csp);
+ ok('SPA pages carry a strict CSP (self scripts, no framing)',/script-src 'self'/.test(csp)&&/frame-ancestors 'none'/.test(csp)&&!/fonts\.g(oogleapis|static)\.com/.test(csp)&&/font-src 'self'(;|$)/.test(csp),csp);
  ok('API responses keep their own CSP through the proxy',/frame-ancestors 'none'/.test((await fetch(web+'/api/health')).headers.get('content-security-policy')||''));
  const asset=html.match(/\/assets\/[^"]+\.js/)?.[0];
  const assetRes=asset?await fetch(web+asset):null;
