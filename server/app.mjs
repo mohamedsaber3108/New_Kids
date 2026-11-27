@@ -43,14 +43,35 @@ const validPassword=s=>typeof s==='string'&&s.length>=12&&s.length<=128;
 // (٠١٠١٢٣٤٥٦٧٨ / ۰۱۰...), +country codes and (555) 123-4567 styles. Rule: after normalizing
 // digits and joining digit groups (2+ digits) split by space/dash/dot/brackets, any run of
 // 9+ digits is treated as a phone/ID number. Short numbers (scores, years, levels) pass.
+const latinDigits=value=>String(value??'').replace(/[٠-٩]/g,d=>String(d.charCodeAt(0)-0x660)).replace(/[۰-۹]/g,d=>String(d.charCodeAt(0)-0x6F0));
+// Chat only (T-07): a child telling the companion their name, school or address. Cue-based on purpose
+// (a name alone cannot be told from a normal word), so "I go to school" and "اسم القطة مشمش" pass.
+// shortcut: cue patterns, not name recognition; upgrade when the AI-safety harness (T-09) shows misses.
+const AR='[\\u0600-\\u06FF]',noAr='(?<!'+AR+')';
+const identityCues=[
+  /\bmy (?:full |real |last |first )?name is\b/i,
+  /\b(?:[Ii] am|[Ii]'m) [A-Z][a-z]+ [A-Z][a-z]+/,
+  /\bcall(?:ed)? me [A-Z]/,
+  /\b[Mm]y (?:friend|teacher|dad|mum|mom|father|mother|brother|sister)(?:'s name)? (?:is|is called|called) (?:(?:Mr|Mrs|Ms|Dr)\.? )?[A-Z][a-z]+ [A-Z][a-z]+/,
+  /\b(?:[A-Z][A-Za-z.]+ ){2,}(?:School|College|Academy|Institute)\b/,
+  /\b[Mm]y school(?: name)? is [A-Z]/,
+  /\b\d+[A-Za-z]? (?:[A-Z][a-z]+ ){0,3}(?:Street|St|Road|Rd|Avenue|Ave|Corniche|Square|Lane)\b/,
+  /\b(?:building|bldg|apartment|flat|street) \d+/i,
+  new RegExp(noAr+'اسمي(?!'+AR+')'),
+  new RegExp('(?:صاحبي|صديقي|صاحبتي|صديقتي|بابا|ماما|أبويا|أمي|أخويا|اخويا|أختي|اختي)\\s+(?:بتاع\\S*\\s+)?(?:اسمه|اسمها)'),
+  new RegExp(noAr+'مدرسة\\s+(?:ال'+AR+'+|'+AR+'+\\s+ال'+AR+'+)'),
+  new RegExp(noAr+'(?:أسكن|اسكن|ساكن|ساكنة|بيتي|بيتنا|منزلي)\\s+(?:في|على)'),
+  new RegExp('(?:'+noAr+'(?:شارع|كورنيش|ميدان)\\s+(?:رقم\\s+)?\\d+|\\d+\\s+(?:شارع|كورنيش|ميدان)|'+noAr+'(?:عمارة|شقة)\\s+(?:رقم\\s+)?\\d+|'+noAr+'شارع\\s+ال'+AR+'+)')
+];
+const sharesIdentity=value=>{const text=latinDigits(value);return identityCues.some(r=>r.test(text))};
 const privateInfo={test(value){
-  const text=String(value??'').replace(/[٠-٩]/g,d=>String(d.charCodeAt(0)-0x660)).replace(/[۰-۹]/g,d=>String(d.charCodeAt(0)-0x6F0));
+  const text=latinDigits(value);
   if(/[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}/.test(text))return true;
   let joined=text,prev;do{prev=joined;joined=joined.replace(/(\d{2,})[\s\-.()]+(?=\(?\d{2,})/g,'$1').replace(/\((\d{2,})\)/g,'$1')}while(joined!==prev);
   return /\d{9,}/.test(joined);
 }};
 function safeGuidance(message,companionId,missionId){
-  if(privateInfo.test(message)||/(password|كلمة السر|عنواني|رقم تليفوني)/i.test(message))return {state:'RESTRICTED',reply:'لا تشارك معلوماتك الشخصية هنا. اطلب مساعدة ولي أمرك إذا احتجت.'};
+  if(privateInfo.test(message)||sharesIdentity(message)||/(password|كلمة السر|عنواني|رقم تليفوني)/i.test(message))return {state:'RESTRICTED',reply:'لا تشارك معلوماتك الشخصية هنا. اطلب مساعدة ولي أمرك إذا احتجت.'};
   const guide=companions.find(c=>c.id===companionId)||companions[0];
   const mission=missions.find(m=>m.id===missionId);
   if(/(hint|تلميح|ساعد)/i.test(message)&&mission)return {state:'SAFE',reply:mission.questions[0].hintAr};
