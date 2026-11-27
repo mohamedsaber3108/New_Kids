@@ -15,3 +15,5 @@ coverage
 *.log
 backups
 .deploy
+# Dev-only helper scripts; not needed in any image.
+tools
