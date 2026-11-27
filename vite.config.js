@@ -5,6 +5,8 @@ export default defineConfig({
   server:{allowedHosts:['terminal.local']},
   preview:{allowedHosts:['terminal.local']},
   build:{
+    // Never inline fonts as data: URIs; the CSP font-src 'self' blocks them.
+    assetsInlineLimit:(file)=>/\.woff2?$/.test(file)?false:undefined,
     rollupOptions:{
       output:{
         // Split long-lived vendor code from app code so browsers keep it cached across releases.
